@@ -14,28 +14,28 @@
 
 ./coind -datadir=./ importprivkey Y6J4aK6Wcs4A3Ex4HXdfjJ6ZsHpNZfjaS4B9w7xqEnmFEYMqQd13
 
-./coind -datadir=. send 0-1 0-2 10000000000
-./coind -datadir=. send 0-1 0-3 10000000000
-./coind -datadir=. send 0-1 0-4 10000000000
-./coind -datadir=. send 0-1 0-5 10000000000
-./coind -datadir=. send 0-1 0-6 10000000000
-./coind -datadir=. send 0-1 0-7 10000000000
-./coind -datadir=. send 0-1 0-8 10000000000
-./coind -datadir=. send 0-1 0-9 10000000000
-./coind -datadir=. send 0-1 0-10 10000000000
-./coind -datadir=. send 0-1 0-11 10000000000
-./coind -datadir=. send 0-1 0-12 10000000000
+./coind -datadir=. submitsendtx 0-1 0-2 10000000000 10000
+./coind -datadir=. submitsendtx 0-1 0-3 10000000000 10000
+./coind -datadir=. submitsendtx 0-1 0-4 10000000000 10000
+./coind -datadir=. submitsendtx 0-1 0-5 10000000000 10000
+./coind -datadir=. submitsendtx 0-1 0-6 10000000000 10000
+./coind -datadir=. submitsendtx 0-1 0-7 10000000000 10000
+./coind -datadir=. submitsendtx 0-1 0-8 10000000000 10000
+./coind -datadir=. submitsendtx 0-1 0-9 10000000000 10000
+./coind -datadir=. submitsendtx 0-1 0-10 10000000000 10000
+./coind -datadir=. submitsendtx 0-1 0-11 10000000000 10000
+./coind -datadir=. submitsendtx 0-1 0-12 10000000000 10000
 
 sleep 20
 
-./coind -datadir=. votedelegatetx 0-2 "[{\"delegate\":\"0-2\", \"votes\":100000000}]" 10000
-./coind -datadir=. votedelegatetx 0-3 "[{\"delegate\":\"0-3\", \"votes\":100000000}]" 10000
-./coind -datadir=. votedelegatetx 0-4 "[{\"delegate\":\"0-4\", \"votes\":100000000}]" 10000
-./coind -datadir=. votedelegatetx 0-5 "[{\"delegate\":\"0-5\", \"votes\":100000000}]" 10000
-./coind -datadir=. votedelegatetx 0-6 "[{\"delegate\":\"0-6\", \"votes\":100000000}]" 10000
-./coind -datadir=. votedelegatetx 0-7 "[{\"delegate\":\"0-7\", \"votes\":100000000}]" 10000
-./coind -datadir=. votedelegatetx 0-8 "[{\"delegate\":\"0-8\", \"votes\":100000000}]" 10000
-./coind -datadir=. votedelegatetx 0-9 "[{\"delegate\":\"0-9\", \"votes\":100000000}]" 10000
-./coind -datadir=. votedelegatetx 0-10 "[{\"delegate\":\"0-10\", \"votes\":100000000}]" 10000
-./coind -datadir=. votedelegatetx 0-11 "[{\"delegate\":\"0-11\", \"votes\":100000000}]" 10000
-./coind -datadir=. votedelegatetx 0-12 "[{\"delegate\":\"0-12\", \"votes\":100000000}]" 10000
+./coind -datadir=. submitdelegatevotetx 0-2 "[{\"delegate\":\"0-2\", \"votes\":100000000}]" 10000
+./coind -datadir=. submitdelegatevotetx 0-3 "[{\"delegate\":\"0-3\", \"votes\":100000000}]" 10000
+./coind -datadir=. submitdelegatevotetx 0-4 "[{\"delegate\":\"0-4\", \"votes\":100000000}]" 10000
+./coind -datadir=. submitdelegatevotetx 0-5 "[{\"delegate\":\"0-5\", \"votes\":100000000}]" 10000
+./coind -datadir=. submitdelegatevotetx 0-6 "[{\"delegate\":\"0-6\", \"votes\":100000000}]" 10000
+./coind -datadir=. submitdelegatevotetx 0-7 "[{\"delegate\":\"0-7\", \"votes\":100000000}]" 10000
+./coind -datadir=. submitdelegatevotetx 0-8 "[{\"delegate\":\"0-8\", \"votes\":100000000}]" 10000
+./coind -datadir=. submitdelegatevotetx 0-9 "[{\"delegate\":\"0-9\", \"votes\":100000000}]" 10000
+./coind -datadir=. submitdelegatevotetx 0-10 "[{\"delegate\":\"0-10\", \"votes\":100000000}]" 10000
+./coind -datadir=. submitdelegatevotetx 0-11 "[{\"delegate\":\"0-11\", \"votes\":100000000}]" 10000
+./coind -datadir=. submitdelegatevotetx 0-12 "[{\"delegate\":\"0-12\", \"votes\":100000000}]" 10000
