@@ -1,9 +1,10 @@
-// Copyright (c) 2009-2014 The WaykiChain developers
+// Copyright (c) 2009-2010 Satoshi Nakamoto
+// Copyright (c) 2017-2019 The WaykiChain Developers
 // Distributed under the MIT/X11 software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// file COPYING or http://www.opensource.org/licenses/mit-license.php
 
-#include "base58.h"
-#include "rpcserver.h"
+#include "commons/base58.h"
+#include "rpc/core/rpcserver.h"
 #include "init.h"
 #include "main.h"
 #include "sync.h"
@@ -56,13 +57,13 @@ string static EncodeDumpTime(int64_t nTime) {
 //    return ret.str();
 //}
 
-string DecodeDumpString(const string &str) 
+string DecodeDumpString(const string &str)
 {
     stringstream ret;
     for (unsigned int pos = 0; pos < str.length(); pos++) {
         unsigned char c = str[pos];
         if (c == '%' && pos+2 < str.length()) {
-            c = (((str[pos+1]>>6)*9+((str[pos+1]-'0')&15)) << 4) | 
+            c = (((str[pos+1]>>6)*9+((str[pos+1]-'0')&15)) << 4) |
                 ((str[pos+2]>>6)*9+((str[pos+2]-'0')&15));
             pos += 2;
         }
@@ -84,11 +85,11 @@ Value dropminerkeys(const Array& params, bool fHelp)
     }
 
 	EnsureWalletIsUnlocked();
-	if (!pwalletMain->IsReadyForCoolMiner(*pAccountViewTip)) {
-		throw runtime_error("there is no cool miner key or miner key is not registered yet");
+	if (!pWalletMain->IsReadyForCoolMiner(*pCdMan->pAccountCache)) {
+		throw runtime_error("there is no cool miner key or miner key which has registered");
 	}
 
-	pwalletMain->ClearAllCkeyForCoolMiner();
+	pWalletMain->ClearAllMainKeysForCoolMiner();
 	Object ret;
 	ret.push_back( Pair("info", "wallet is ready for cool mining.") );
 	return ret;
@@ -130,23 +131,22 @@ Value importprivkey(const Array& params, bool fHelp)
     CCoinSecret vchSecret;
     bool fGood = vchSecret.SetString(strSecret);
 
-    if (!fGood) 
+    if (!fGood)
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid private key encoding");
 
     CKey key = vchSecret.GetKey();
-    if (!key.IsValid()) 
+    if (!key.IsValid())
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Private key outside allowed range");
 
     CPubKey pubkey = key.GetPubKey();
     {
-        LOCK2(cs_main, pwalletMain->cs_wallet);
+        LOCK2(cs_main, pWalletMain->cs_wallet);
 
-       if (!pwalletMain->AddKey(key))
-           throw JSONRPCError(RPC_WALLET_ERROR, "Error adding key to wallet");
-
+        if (!pWalletMain->AddKey(key))
+            throw JSONRPCError(RPC_WALLET_ERROR, "Error adding key to wallet");
     }
     Object reply2;
-    reply2.push_back(Pair("imported_key_address",pubkey.GetKeyID().ToAddress()));
+    reply2.push_back(Pair("imported_key_address", pubkey.GetKeyId().ToAddress()));
     return reply2;
 }
 
@@ -166,7 +166,7 @@ Value importwallet(const Array& params, bool fHelp)
             + HelpExampleRpc("importwallet", "\"target_dumpwallet_filepath\"")
         );
 
-    LOCK2(cs_main, pwalletMain->cs_wallet);
+    LOCK2(cs_main, pWalletMain->cs_wallet);
 
     EnsureWalletIsUnlocked();
 
@@ -175,37 +175,30 @@ Value importwallet(const Array& params, bool fHelp)
     if (!file.is_open())
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot open wallet dump file");
 
-//  int64_t nTimeBegin = chainActive.Tip()->nTime;
-
-//  bool fGood = true;
-//  int64_t nFilesize = max((int64_t)1, (int64_t)file.tellg());
     file.seekg(0, file.beg);
     int importedKeySize = 0;
-    pwalletMain->ShowProgress(_("Importing..."), 0); // show progress dialog in GUI
     if (file.good()) {
     	Value reply;
     	json_spirit::read(file, reply);
-    	const Value & keyobj = find_value(reply.get_obj(),"key");
-    	const Array & keyarry = keyobj.get_array();
-    	for (auto const &keyItem :keyarry) {
+    	const Value & keyObj = find_value(reply.get_obj(),"key");
+    	const Array & keyArray = keyObj.get_array();
+    	for (auto const &keyItem :keyArray) {
     		CKeyCombi keyCombi;
     		const Value &obj = find_value(keyItem.get_obj(), "keyid");
     		if(obj.type() == null_type)
     			continue;
-                
+
     		string strKeyId = find_value(keyItem.get_obj(), "keyid").get_str();
     		CKeyID keyId(uint160(ParseHex(strKeyId)));
     		keyCombi.UnSerializeFromJson(keyItem.get_obj());
-    		if(!keyCombi.HasMainKey() && !keyCombi.HasMinerKey())
+    		if(!keyCombi.HaveMainKey() && !keyCombi.HaveMinerKey())
     			continue;
 
-    		if(pwalletMain->AddKey(keyId, keyCombi))
-    			importedKeySize++;
-    	}
+                if (pWalletMain->AddKey(keyId, keyCombi))
+                    importedKeySize++;
+        }
     }
     file.close();
-    pwalletMain->ShowProgress("", 100); // hide progress dialog in GUI
-    pwalletMain->ScanForWalletTransactions(chainActive.Genesis(), true);
 
     Object reply2;
     reply2.push_back(Pair("imported_key_size", importedKeySize));
@@ -234,15 +227,17 @@ Value dumpprivkey(const Array& params, bool fHelp)
     CCoinAddress address;
     if (!address.SetString(strAddress))
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Coin address");
-    CKeyID keyID;
-    if (!address.GetKeyID(keyID))
+
+    CKeyID keyId;
+    if (!address.GetKeyId(keyId))
         throw JSONRPCError(RPC_TYPE_ERROR, "The address is not associated with any private key");
+
     CKey vchSecret;
-    if (!pwalletMain->GetKey(keyID, vchSecret))
+    if (!pWalletMain->GetKey(keyId, vchSecret))
         throw JSONRPCError(RPC_WALLET_ERROR, "Private key for address " + strAddress + " is not known");
 
     CKey minerkey;
-	pwalletMain->GetKey(keyID, minerkey, true);
+	pWalletMain->GetKey(keyId, minerkey, true);
     Object reply;
     	reply.push_back(Pair("privkey", CCoinSecret(vchSecret).ToString()));
 
@@ -268,7 +263,7 @@ Value dumpwallet(const Array& params, bool fHelp) {
 
     string dumpFilePath = params[0].get_str().c_str();
     if (dumpFilePath.find(GetDataDir().string()) != std::string::npos)
-        throw JSONRPCError(RPC_WALLET_FILEPATH_INVALID, 
+        throw JSONRPCError(RPC_WALLET_FILEPATH_INVALID,
             "Wallet file shall not be saved into the Data dir to avoid likely file overwrite.");
 
     ofstream file;
@@ -283,11 +278,11 @@ Value dumpwallet(const Array& params, bool fHelp) {
 	reply.push_back(Pair("Best block hash ", chainActive.Tip()->GetBlockHash().ToString()));
 
 	set<CKeyID> setKeyIds;
-	pwalletMain->GetKeys(setKeyIds);
+	pWalletMain->GetKeys(setKeyIds);
 	Array arrKeys;
 	for (auto & keyId : setKeyIds) {
 		CKeyCombi keyCombi;
-		pwalletMain->GetKeyCombi(keyId, keyCombi);
+		pWalletMain->GetKeyCombi(keyId, keyCombi);
 		Object obj = keyCombi.ToJsonObj();
 		obj.push_back(Pair("keyid", keyId.ToString()));
 		arrKeys.push_back(obj);

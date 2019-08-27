@@ -4,8 +4,8 @@
 
 #include "addrman.h"
 
-#include "hash.h"
-#include "serialize.h"
+#include "crypto/hash.h"
+#include "commons/serialize.h"
 
 using namespace std;
 

@@ -10,20 +10,19 @@
 #include <string>
 #include <vector>
 
-#include "chainparams.h"
-#include "core.h"
+#include "config/chainparams.h"
 #include "init.h"
 #include "main.h"
-#include "miner.h"
+#include "miner/miner.h"
 //#include "net.h"
-#include "rpcprotocol.h"
-#include "rpcserver.h"
-#include "serialize.h"
+#include "rpc/core/rpcprotocol.h"
+#include "rpc/core/rpcserver.h"
+#include "commons/serialize.h"
 #include "sync.h"
-#include "txmempool.h"
-#include "uint256.h"
-#include "util.h"
-#include "version.h"
+#include "tx/txmempool.h"
+#include "commons/uint256.h"
+#include "commons/util.h"
+#include "config/version.h"
 
 #include "../wallet/wallet.h"
 
@@ -35,104 +34,12 @@
 using namespace json_spirit;
 using namespace std;
 
+static bool fMining = false;
 
-// Key used by getwork miners.
-// Allocated in InitRPCMining, free'd in ShutdownRPCMining
-//static CReserveKey* pMiningKey = NULL;
+void SetMinerStatus(bool bStatus) { fMining = bStatus; }
+static bool GetMiningInfo() { return fMining; }
 
-void InitRPCMining()
-{
-    if (!pwalletMain)
-        return;
-
-    // getwork/getblocktemplate mining rewards paid here:
-//    pMiningKey = new CReserveKey(pwalletMain);
-     //assert(0);
-     LogPrint("TODO","InitRPCMining");
-}
-
-void ShutdownRPCMining()
-{
-//    if (!pMiningKey)
-//        return;
-//
-//    delete pMiningKey; pMiningKey = NULL;
-}
-
-
-// Return average network hashes per second based on the last 'lookup' blocks,
-// or from the last difficulty change if 'lookup' is nonpositive.
-// If 'height' is nonnegative, compute the estimate at the time when a given block was found.
-Value GetNetworkHashPS(int lookup, int height) {
-    CBlockIndex *pb = chainActive.Tip();
-
-    if (height >= 0 && height < chainActive.Height())
-        pb = chainActive[height];
-
-    if (pb == NULL || !pb->nHeight)
-        return 0;
-
-    // If lookup is -1, then use blocks since last difficulty change.
-    if (lookup <= 0)
-        lookup = pb->nHeight % 2016 + 1;
-
-    // If lookup is larger than chain, then set it to chain length.
-    if (lookup > pb->nHeight)
-        lookup = pb->nHeight;
-
-    CBlockIndex *pb0 = pb;
-    int64_t minTime = pb0->GetBlockTime();
-    int64_t maxTime = minTime;
-    for (int i = 0; i < lookup; i++) {
-        pb0 = pb0->pprev;
-        int64_t time = pb0->GetBlockTime();
-        minTime = min(time, minTime);
-        maxTime = max(time, maxTime);
-    }
-
-    // In case there's a situation where minTime == maxTime, we don't want a divide by zero exception.
-    if (minTime == maxTime)
-        return 0;
-
-    arith_uint256 workDiff = pb->nChainWork - pb0->nChainWork;
-    int64_t timeDiff = maxTime - minTime;
-
-    return (int64_t)(workDiff.getdouble() / timeDiff);
-}
-
-Value getnetworkhashps(const Array& params, bool fHelp)
-{
-    if (fHelp || params.size() > 2)
-        throw runtime_error(
-            "getnetworkhashps ( blocks height )\n"
-            "\nReturns the estimated network hashes per second based on the last n blocks.\n"
-            "Pass in [blocks] to override # of blocks, -1 specifies since last difficulty change.\n"
-            "Pass in [height] to estimate the network speed at the time when a certain block was found.\n"
-            "\nArguments:\n"
-            "1. blocks     (numeric, optional, default=120) The number of blocks, or -1 for blocks since last difficulty change.\n"
-            "2. height     (numeric, optional, default=-1) To estimate at the time of the given height.\n"
-            "\nResult:\n"
-            "x             (numeric) Hashes per second estimated\n"
-            "\nExamples:\n"
-            + HelpExampleCli("getnetworkhashps", "")
-            + HelpExampleRpc("getnetworkhashps", "")
-       );
-
-    return GetNetworkHashPS(params.size() > 0 ? params[0].get_int() : 120, params.size() > 1 ? params[1].get_int() : -1);
-}
-
-static bool IsMining = false;
-
-void SetMinerStatus(bool bStatus) {
-    IsMining = bStatus;
-}
-
-static bool GetMiningInfo() {
-    return IsMining;
-}
-
-Value setgenerate(const Array& params, bool fHelp)
-{
+Value setgenerate(const Array& params, bool fHelp) {
     if (fHelp || (params.size() != 1 && params.size() != 2))
         throw runtime_error(
             "setgenerate generate ( genblocklimit )\n"
@@ -155,46 +62,45 @@ Value setgenerate(const Array& params, bool fHelp)
 
     set<CKeyID> setKeyId;
     setKeyId.clear();
-    pwalletMain->GetKeys(setKeyId, true);
+    pWalletMain->GetKeys(setKeyId, true);
 
     bool bSetEmpty(true);
     for (auto & keyId : setKeyId) {
         CUserID userId(keyId);
         CAccount acctInfo;
-        if (pAccountViewTip->GetAccount(userId, acctInfo)) {
+        if (pCdMan->pAccountCache->GetAccount(userId, acctInfo)) {
             bSetEmpty = false;
             break;
         }
     }
 
     if (bSetEmpty)
-        throw JSONRPCError(RPC_INVALID_PARAMS, "no key for mining");
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "No key for mining");
 
     if (params.size() > 0)
         fGenerate = params[0].get_bool();
 
-    int nGenProcLimit = 1;
+    int genBlockLimit = 1;
     if (params.size() == 2) {
-        nGenProcLimit = params[1].get_int();
-        if(nGenProcLimit <= 0) {
-            throw JSONRPCError(RPC_INVALID_PARAMS, "limit conter err for mining");
+        genBlockLimit = params[1].get_int();
+        if(genBlockLimit <= 0) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid genblocklimit");
         }
     }
     Object obj;
     if (fGenerate == false){
-        GenerateCoinBlock(false, pwalletMain, 1);
+        GenerateCoinBlock(false, pWalletMain, 1);
 
         obj.push_back(Pair("msg", "stoping  mining"));
         return obj;
     }
 
-    GenerateCoinBlock(true, pwalletMain, nGenProcLimit);
+    GenerateCoinBlock(true, pWalletMain, genBlockLimit);
     obj.push_back(Pair("msg", "in  mining"));
     return obj;
 }
 
-Value getmininginfo(const Array& params, bool fHelp)
-{
+Value getmininginfo(const Array& params, bool fHelp) {
     if (fHelp || params.size() != 0) {
         throw runtime_error("getmininginfo\n"
             "\nReturns a json object containing mining-related information."
@@ -203,11 +109,8 @@ Value getmininginfo(const Array& params, bool fHelp)
             "  \"blocks\": nnn,             (numeric) The current block\n"
             "  \"currentblocksize\": nnn,   (numeric) The last block size\n"
             "  \"currentblocktx\": nnn,     (numeric) The last block transaction\n"
-            "  \"difficulty\": xxx.xxxxx    (numeric) The current difficulty\n"
             "  \"errors\": \"...\"          (string) Current errors\n"
             "  \"generate\": true|false     (boolean) If the generation is on or off (see getgenerate or setgenerate calls)\n"
-            "  \"genblocklimit\": n         (numeric) The processor limit for generation. -1 if no generation. (see getgenerate or setgenerate calls)\n"
-            "  \"hashespersec\": n          (numeric) The hashes per second of the generation, or 0 if no generation.\n"
             "  \"pooledtx\": n              (numeric) The size of the mem pool\n"
             "  \"testnet\": true|false      (boolean) If using testnet or not\n"
             "}\n"
@@ -220,21 +123,19 @@ Value getmininginfo(const Array& params, bool fHelp)
     static const string NetTypes[] = { "MAIN_NET", "TEST_NET", "REGTEST_NET" };
 
     Object obj;
-    obj.push_back(Pair("blocks",           (int)chainActive.Height()));
+    obj.push_back(Pair("blocks",           chainActive.Height()));
     obj.push_back(Pair("currentblocksize", (uint64_t)nLastBlockSize));
     obj.push_back(Pair("currentblocktx",   (uint64_t)nLastBlockTx));
     obj.push_back(Pair("errors",           GetWarnings("statusbar")));
     obj.push_back(Pair("genblocklimit",    1));
-    obj.push_back(Pair("networkhashps",    getnetworkhashps(params, false)));
     obj.push_back(Pair("pooledtx",         (uint64_t)mempool.Size()));
     obj.push_back(Pair("nettype",          NetTypes[SysCfg().NetworkID()]));
-    obj.push_back(Pair("posmaxnonce",      SysCfg().GetBlockMaxNonce()));
+    obj.push_back(Pair("posmaxnonce",      (int32_t)SysCfg().GetBlockMaxNonce()));
     obj.push_back(Pair("generate",         GetMiningInfo()));
     return obj;
 }
 
-Value submitblock(const Array& params, bool fHelp)
-{
+Value submitblock(const Array& params, bool fHelp) {
     if (fHelp || params.size() < 1 || params.size() > 2)
         throw runtime_error("submitblock \"hexdata\" ( \"jsonparametersobject\" )\n"
             "\nAttempts to submit new block to network.\n"
@@ -255,43 +156,31 @@ Value submitblock(const Array& params, bool fHelp)
 
     vector<unsigned char> blockData(ParseHex(params[0].get_str()));
     CDataStream ssBlock(blockData, SER_NETWORK, PROTOCOL_VERSION);
-    CBlock pblock;
+    CBlock pBlock;
     try {
-        ssBlock >> pblock;
+        ssBlock >> pBlock;
     }
     catch (std::exception &e) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed");
     }
 
     CValidationState state;
-    bool fAccepted = ProcessBlock(state, NULL, &pblock);
+    bool fAccepted = ProcessBlock(state, NULL, &pBlock);
     Object obj;
     if (!fAccepted) {
-        obj.push_back(Pair("status", "rejected"));
-        obj.push_back(Pair("reject code", state.GetRejectCode()));
-        obj.push_back(Pair("info", state.GetRejectReason()));
+        obj.push_back(Pair("status",        "rejected"));
+        obj.push_back(Pair("reject_code",   state.GetRejectCode()));
+        obj.push_back(Pair("info",          state.GetRejectReason()));
     } else {
 
-        obj.push_back(Pair("status", "OK"));
-        obj.push_back(Pair("hash", pblock.GetHash().ToString()));
+        obj.push_back(Pair("status",        "OK"));
+        obj.push_back(Pair("txid",          pBlock.GetHash().ToString()));
     }
     return obj;
 }
 
-    int64_t         nTime;              // block time
-    int64_t         nNonce;             // nonce
-    int             nHeight;            // block height
-    int64_t         nTotalFuels;        // the total fuels of all transactions in the block
-    int             nFuelRate;          // the fuel rate
-    int64_t         nTotalFees;         // the total fees of all transactions in the block
-    uint64_t        nTxCount;           // transaction count in block, exclude coinbase
-    uint64_t        nBlockSize;         // block size(bytes)
-    uint256         hash;               // block hash
-    uint256         hashPrevBlock;      // prev block hash
 
-
-Value getminedblocks(const Array& params, bool fHelp)
-{
+Value getminedblocks(const Array& params, bool fHelp) {
     if (fHelp || params.size() > 1) {
         throw runtime_error("getminedblocks\n"
             "\nReturns a json array containing the blocks mined by this node."
@@ -330,16 +219,15 @@ Value getminedblocks(const Array& params, bool fHelp)
     auto minedBlocks = GetMinedBlocks(count);
     for ( auto &blockInfo : minedBlocks) {
         Object obj;
-        obj.push_back(Pair("time",          blockInfo.nTime));
-        obj.push_back(Pair("nonce",         blockInfo.nNonce));
-        obj.push_back(Pair("height",        blockInfo.nHeight));
-        obj.push_back(Pair("totalfuels",    blockInfo.nTotalFuels));
-        obj.push_back(Pair("fuelrate",      blockInfo.nFuelRate));
-        obj.push_back(Pair("totalfees",     blockInfo.nTotalFees));
-        obj.push_back(Pair("reward",        blockInfo.GetReward()));
-        obj.push_back(Pair("txcount",       blockInfo.nTxCount));
-        obj.push_back(Pair("blocksize",     blockInfo.nBlockSize));
-        obj.push_back(Pair("hash",          blockInfo.hash.ToString()));
+        obj.push_back(Pair("time",          blockInfo.time));
+        obj.push_back(Pair("nonce",         blockInfo.nonce));
+        obj.push_back(Pair("height",        blockInfo.height));
+        obj.push_back(Pair("total_fuels",   blockInfo.totalFuel));
+        obj.push_back(Pair("fuel_rate",     (int32_t)blockInfo.fuelRate));
+        obj.push_back(Pair("total_fees",    blockInfo.totalFees));
+        obj.push_back(Pair("tx_count",      blockInfo.txCount));
+        obj.push_back(Pair("block_size",    blockInfo.totalBlockSize));
+        obj.push_back(Pair("txid",          blockInfo.hash.ToString()));
         obj.push_back(Pair("preblockhash",  blockInfo.hashPrevBlock.ToString()));
         ret.push_back(obj);
     }

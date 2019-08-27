@@ -2,20 +2,21 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "rpcserver.h"
+#include "rpc/core/rpcserver.h"
 
 #include "main.h"
 #include "net.h"
 #include "netbase.h"
 #include "protocol.h"
 #include "sync.h"
-#include "util.h"
+#include "commons/util.h"
+#include "tx/blockrewardtx.h"
+
+#include "json/json_spirit_value.h"
 
 #include <boost/foreach.hpp>
 #include <boost/assign/list_of.hpp>
 #include <boost/assign/list_of.hpp>
-
-#include "json/json_spirit_value.h"
 
 using namespace boost::assign;
 using namespace json_spirit;
@@ -65,9 +66,9 @@ static void CopyNodeStats(vector<CNodeStats>& vstats)
 
     LOCK(cs_vNodes);
     vstats.reserve(vNodes.size());
-    for(auto pnode : vNodes) {
+    for(auto pNode : vNodes) {
         CNodeStats stats;
-        pnode->copyStats(stats);
+        pNode->copyStats(stats);
         vstats.push_back(stats);
     }
 }
@@ -293,12 +294,12 @@ Value getaddednodeinfo(const Array& params, bool fHelp)
             bool fFound = false;
             Object node;
             node.push_back(Pair("address", addrNode.ToString()));
-            for (auto pnode : vNodes)
-                if (pnode->addr == addrNode)
+            for (auto pNode : vNodes)
+                if (pNode->addr == addrNode)
                 {
                     fFound = true;
                     fConnected = true;
-                    node.push_back(Pair("connected", pnode->fInbound ? "inbound" : "outbound"));
+                    node.push_back(Pair("connected", pNode->fInbound ? "inbound" : "outbound"));
                     break;
                 }
             if (!fFound)
@@ -364,7 +365,7 @@ Value getnetworkinfo(const Array& params, bool fHelp)
             + HelpExampleRpc("getnetworkinfo", "")
         );
 
-    proxyType proxy;
+    ProxyType proxy;
     GetProxy(NET_IPV4, proxy);
 
     Object obj;
@@ -411,8 +412,8 @@ Value getchainstate(const Array& params, bool fHelp) {
 
     RPCTypeCheck(params, list_of(int_type));
 
-    int nHeight = params[0].get_int();
-    if (nHeight < 1 || nHeight > chainActive.Height() || nHeight > kMostRecentBlockNumberThreshold)
+    int height = params[0].get_int();
+    if (height < 1 || height > chainActive.Height() || height > MAX_RECENT_BLOCK_COUNT)
         throw runtime_error("Block number out of range.");
 
     CBlockIndex* pBlockIndex = chainActive.Tip();
@@ -422,15 +423,13 @@ Value getchainstate(const Array& params, bool fHelp) {
     Array fuel;
     Array blockminer;
 
-    for (int i = 0; (i < nHeight) && (pBlockIndex != NULL); i++) {
+    for (int i = 0; (i < height) && (pBlockIndex != NULL); i++) {
         blocktime.push_back(pBlockIndex->GetBlockTime());
         transactions.push_back((int)pBlockIndex->nTx);
         fuel.push_back(pBlockIndex->nFuel);
         block.SetNull();
-        if (ReadBlockFromDisk(block, pBlockIndex)) {
-            blockminer.push_back(
-                boost::get<CRegID>(dynamic_pointer_cast<CRewardTx>(block.vptx[0])->account)
-                    .ToString());
+        if (ReadBlockFromDisk(pBlockIndex, block)) {
+            blockminer.push_back(((CBlockRewardTx *)block.vptx[0].get())->txUid.ToString());
         }
         pBlockIndex = pBlockIndex->pprev;
     }

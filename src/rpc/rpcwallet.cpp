@@ -3,21 +3,24 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "base58.h"
-#include "rpcserver.h"
+#include "commons/base58.h"
+#include "rpc/core/rpcserver.h"
+#include "rpc/core/rpccommons.h"
 #include "init.h"
 #include "net.h"
 #include "netbase.h"
-#include "util.h"
-#include "miner.h"
+#include "commons/util.h"
+#include "miner/miner.h"
 #include "../wallet/wallet.h"
 #include "../wallet/walletdb.h"
-
-#include <stdint.h>
-
-#include <boost/assign/list_of.hpp>
 #include "json/json_spirit_utils.h"
 #include "json/json_spirit_value.h"
+#include "persistence/contractdb.h"
+#include "vm/luavm/appaccount.h"
+
+#include <stdint.h>
+#include <boost/assign/list_of.hpp>
+
 
 using namespace std;
 using namespace boost;
@@ -27,46 +30,39 @@ using namespace json_spirit;
 int64_t nWalletUnlockTime;
 static CCriticalSection cs_nWalletUnlockTime;
 
-string HelpRequiringPassphrase()
-{
-    return pwalletMain && pwalletMain->IsEncrypted()
-        ? "\nRequires wallet passphrase to be set with walletpassphrase call."
-        : "";
+
+string HelpRequiringPassphrase() {
+    return pWalletMain && pWalletMain->IsEncrypted()
+               ? "\nRequires wallet passphrase to be set with walletpassphrase call."
+               : "";
 }
 
-void EnsureWalletIsUnlocked()
-{
-    if (pwalletMain->IsLocked())
-        throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED,
+void EnsureWalletIsUnlocked() {
+    if (pWalletMain->IsLocked())
+        throw JSONRPCError(
+            RPC_WALLET_UNLOCK_NEEDED,
             "Error: Please enter the wallet passphrase with walletpassphrase first.");
 }
 
-bool GetKeyId(string const &addr,CKeyID &KeyId)
-{
-    if (!CRegID::GetKeyID(addr, KeyId)) {
-        KeyId = CKeyID(addr);
-        return (!KeyId.IsEmpty());
-    }
-    return true;
-}
-
-Value getnewaddr(const Array& params, bool fHelp)
-{
+Value getnewaddr(const Array& params, bool fHelp) {
     if (fHelp || params.size() > 1)
-        throw runtime_error("getnewaddr  (\"IsMiner\")\n"
+        throw runtime_error(
+            "getnewaddr  (\"IsMiner\")\n"
             "\nget a new address\n"
             "\nArguments:\n"
-            "1. \"IsMiner\" (bool, optional)  If true, it creates two sets of key-pairs: one for mining and another for receiving miner fees.\n"
-           "\nExamples:\n"
-            + HelpExampleCli("getnewaddr", "")
-            + HelpExampleCli("getnewaddr", "true")
-        );
+            "1. \"IsMiner\" (bool, optional) If true, it creates two sets of key-pairs: one for "
+            "mining and another for receiving miner fees.\n"
+            "\nResult:\n"
+            "\nExamples:\n" +
+            HelpExampleCli("getnewaddr", "") + "\nAs json rpc\n" +
+            HelpExampleRpc("getnewaddr", ""));
+
     EnsureWalletIsUnlocked();
 
-    bool IsForMiner = false;
+    bool isForMiner = false;
     if (params.size() == 1) {
         RPCTypeCheck(params, list_of(bool_type));
-        IsForMiner = params[0].get_bool();
+        isForMiner = params[0].get_bool();
     }
 
     CKey userkey;
@@ -75,21 +71,171 @@ Value getnewaddr(const Array& params, bool fHelp)
     CKey minerKey;
     string minerPubKey = "null";
 
-    if (IsForMiner) {
+    if (isForMiner) {
         minerKey.MakeNewKey();
-        if (!pwalletMain->AddKey(userkey, minerKey)) {
+        if (!pWalletMain->AddKey(userkey, minerKey)) {
             throw runtime_error("add miner key failed ");
         }
         minerPubKey = minerKey.GetPubKey().ToString();
-    } else if (!pwalletMain->AddKey(userkey)) {
+    } else if (!pWalletMain->AddKey(userkey)) {
         throw runtime_error("add user key failed ");
     }
 
     CPubKey userPubKey = userkey.GetPubKey();
-    CKeyID userKeyID = userPubKey.GetKeyID();
+    CKeyID userKeyID   = userPubKey.GetKeyId();
+
     Object obj;
-    obj.push_back( Pair("addr", userKeyID.ToAddress()) );
-    obj.push_back( Pair("minerpubkey", minerPubKey) ); // "null" for non-miner address
+    obj.push_back(Pair("addr",          userKeyID.ToAddress()));
+    obj.push_back(Pair("minerpubkey",   minerPubKey));  // "null" for non-miner address
+
+    return obj;
+}
+
+Value addmulsigaddr(const Array& params, bool fHelp) {
+    if (fHelp || params.size() != 2)
+        throw runtime_error(
+            "addmulsigaddr nrequired [\"address\",...]\n"
+            "\nget a new multisig address\n"
+            "\nArguments:\n"
+            "1. nrequired        (numeric, required) The number of required signatures out of the "
+            "n keys or addresses.\n"
+            "2. \"keysobject\"   (string, required) A json array of WICC addresses or "
+            "hex-encoded public keys\n"
+            "[\n"
+            "  \"address\"  (string) WICC address or hex-encoded public key\n"
+            "  ...,\n"
+            "]\n"
+            "\nResult:\n"
+            "\"addr\"  (string) A WICC address.\n"
+            "\nExamples:\n"
+            "\nAdd a 2-3 multisig address from 3 addresses\n" +
+            HelpExampleCli("addmulsigaddr",
+                           "2 \"[\\\"wKwPHfCJfUYZyjJoa6uCVdgbVJkhEnguMw\\\", "
+                           "\\\"wQT2mY1onRGoERTk4bgAoAEaUjPLhLsrY4\\\", "
+                           "\\\"wNw1Rr8cHPerXXGt6yxEkAPHDXmzMiQBn4\\\"]\"") +
+            "\nAs json rpc\n" +
+            HelpExampleRpc("addmulsigaddr",
+                           "2, \"[\\\"wKwPHfCJfUYZyjJoa6uCVdgbVJkhEnguMw\\\", "
+                           "\\\"wQT2mY1onRGoERTk4bgAoAEaUjPLhLsrY4\\\", "
+                           "\\\"wNw1Rr8cHPerXXGt6yxEkAPHDXmzMiQBn4\\\"]\""));
+
+    EnsureWalletIsUnlocked();
+
+    int64_t nRequired = params[0].get_int64();
+    const Array& keys = params[1].get_array();
+
+    if (nRequired < 1) {
+        throw runtime_error("a multisignature address must require at least one key to redeem");
+    }
+
+    if ((int64_t)keys.size() < nRequired) {
+        throw runtime_error(
+            strprintf("not enough keys supplied "
+                      "(got %u keys, but need at least %d to redeem)",
+                      keys.size(), nRequired));
+    }
+
+    if ((int64_t)keys.size() > MAX_MULSIG_NUMBER) {
+        throw runtime_error(
+            strprintf("too many keys supplied, no more than %d keys", MAX_MULSIG_NUMBER));
+    }
+
+    CKeyID keyId;
+    CPubKey pubKey;
+    set<CPubKey> pubKeys;
+    for (unsigned int i = 0; i < keys.size(); i++) {
+        if (!GetKeyId(keys[i].get_str(), keyId)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Failed to get keyId.");
+        }
+
+        if (!pWalletMain->GetPubKey(keyId, pubKey)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Failed to get pubKey.");
+        }
+
+        pubKeys.insert(pubKey);
+    }
+
+    CMulsigScript script;
+    script.SetMultisig(nRequired, pubKeys);
+    CKeyID scriptId = script.GetID();
+    pWalletMain->AddCScript(script);
+
+    Object obj;
+    obj.push_back(Pair("addr", scriptId.ToAddress()));
+    return obj;
+}
+
+Value createmulsig(const Array& params, bool fHelp) {
+    if (fHelp || params.size() != 2)
+        throw runtime_error(
+            "createmulsig nrequired [\"address\",...]\n"
+            "\nCreates a multi-signature address with n signature of m keys required.\n"
+            "\nArguments:\n"
+            "1. nrequired        (numeric, required) The number of required signatures out of the "
+            "n keys or addresses.\n"
+            "2. \"keysobject\"   (string, required) A json array of WICC addresses or "
+            "hex-encoded public keys\n"
+            "[\n"
+            "\"address\"  (string) WICC address or hex-encoded public key\n"
+            "  ...,\n"
+            "]\n"
+            "\nResult:\n"
+            "\"addr\"  (string) A WICC address.\n"
+            "\nExamples:\n"
+            "\nCreate a 2-3 multisig address from 3 addresses\n" +
+            HelpExampleCli("createmulsig",
+                           "2 \"[\\\"wKwPHfCJfUYZyjJoa6uCVdgbVJkhEnguMw\\\", "
+                           "\\\"wQT2mY1onRGoERTk4bgAoAEaUjPLhLsrY4\\\", "
+                           "\\\"wNw1Rr8cHPerXXGt6yxEkAPHDXmzMiQBn4\\\"]\"") +
+            "\nAs json rpc\n" +
+            HelpExampleRpc("createmulsig",
+                           "2, \"[\\\"wKwPHfCJfUYZyjJoa6uCVdgbVJkhEnguMw\\\", "
+                           "\\\"wQT2mY1onRGoERTk4bgAoAEaUjPLhLsrY4\\\", "
+                           "\\\"wNw1Rr8cHPerXXGt6yxEkAPHDXmzMiQBn4\\\"]\""));
+
+    EnsureWalletIsUnlocked();
+
+    int64_t nRequired = params[0].get_int64();
+    const Array& keys = params[1].get_array();
+
+    if (nRequired < 1) {
+        throw runtime_error("a multisignature address must require at least one key to redeem");
+    }
+
+    if ((int64_t)keys.size() < nRequired) {
+        throw runtime_error(
+            strprintf("not enough keys supplied "
+                      "(got %u keys, but need at least %d to redeem)",
+                      keys.size(), nRequired));
+    }
+
+    if ((int64_t)keys.size() > MAX_MULSIG_NUMBER) {
+        throw runtime_error(
+            strprintf("too many keys supplied, no more than %d keys", MAX_MULSIG_NUMBER));
+    }
+
+    CKeyID keyId;
+    CPubKey pubKey;
+    set<CPubKey> pubKeys;
+    for (unsigned int i = 0; i < keys.size(); i++) {
+        if (!GetKeyId(keys[i].get_str(), keyId)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Failed to get keyId.");
+        }
+
+        if (!pWalletMain->GetPubKey(keyId, pubKey)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Failed to get pubKey.");
+        }
+
+        pubKeys.insert(pubKey);
+    }
+
+    CMulsigScript script;
+    script.SetMultisig(nRequired, pubKeys);
+    CKeyID scriptId = script.GetID();
+
+    Object obj;
+    obj.push_back(Pair("addr", scriptId.ToAddress()));
+    obj.push_back(Pair("script", HexStr(script.ToString())));
     return obj;
 }
 
@@ -121,12 +267,12 @@ Value signmessage(const Array& params, bool fHelp)
     string strAddress = params[0].get_str();
     string strMessage = params[1].get_str();
 
-    CKeyID keyID(strAddress);
-    if (keyID.IsEmpty())
+    CKeyID keyId(strAddress);
+    if (keyId.IsEmpty())
         throw JSONRPCError(RPC_TYPE_ERROR, "Invalid address");
 
     CKey key;
-    if (!pwalletMain->GetKey(keyID, key))
+    if (!pWalletMain->GetKey(keyId, key))
         throw JSONRPCError(RPC_WALLET_ERROR, "Private key not available");
 
     CHashWriter ss(SER_GETHASH, 0);
@@ -140,214 +286,128 @@ Value signmessage(const Array& params, bool fHelp)
     return EncodeBase64(&vchSig[0], vchSig.size());
 }
 
-static std::tuple<bool, string> SendMoney(const CRegID &sendRegId, const CUserID &recvRegId,
-    int64_t nValue, int64_t nFee) {
-    CCommonTx tx;
-    tx.srcRegId = sendRegId;
-    tx.desUserId = recvRegId;
-    tx.llValues = nValue;
-    tx.llFees = (0 == nFee) ? SysCfg().GetTxFee() : nFee;
-    tx.nValidHeight = chainActive.Tip()->nHeight;
-
-    CKeyID keyID;
-    if (!pAccountViewTip->GetKeyId(sendRegId, keyID)) {
-        return std::make_tuple(false, "key or keID failed");
-    }
-    if (!pwalletMain->Sign(keyID, tx.SignatureHash(), tx.signature)) {
-        return std::make_tuple(false, "SendMoney Sign failed");
-    }
-
-    std::tuple<bool, string> ret = pwalletMain->CommitTransaction((CBaseTx *)&tx);
-    bool flag = std::get<0>(ret);
-    string te = std::get<1>(ret);
-    if (flag == true)
-        te = tx.GetHash().ToString();
-    return std::make_tuple(flag, te.c_str());
-}
-
-Value sendtoaddress(const Array& params, bool fHelp) {
-    int size = params.size();
-    if (fHelp || (size != 2 && size != 3))
+Value send(const Array& params, bool fHelp) {
+    if (fHelp || (params.size() != 4 && params.size() != 5))
         throw runtime_error(
-            "sendtoaddress (\"sendaddress\") \"recvaddress\" \"amount\"\n"
-            "\nSend an amount to a given address.\n" +
+            "send \"from\" \"to\" \"symbol:coin:unit\" \"symbol:fee:unit\" (\"memo\")\n"
+            "\nSend coins to a given address.\n" +
             HelpRequiringPassphrase() +
             "\nArguments:\n"
-            "1.\"sendaddress\" (string, optional) The address where coins are sent from.\n"
-            "2.\"recvaddress\" (string, required) The address where coins are received.\n"
-            "3.\"amount\" (string, required)\n"
+            "1.\"from\"                 (string, required) The address where coins are sent from.\n"
+            "2.\"to\"                   (string, required) The address where coins are received.\n"
+            "3.\"symbol:coin:unit\":    (symbol:amount:unit, required) transferred coins\n"
+            "4.\"symbol:fee:unit\":     (symbol:amount:unit, required) fee paid to miner, default is WICC:10000:sawi\n"
+            "5.\"memo\":                (string, optional)\n"
             "\nResult:\n"
-            "\"transactionid\" (string) The transaction id.\n"
+            "\"txid\"                   (string) The transaction id.\n"
             "\nExamples:\n" +
-            HelpExampleCli("sendtoaddress", "\"wQquTWgzNzLtjUV4Du57p9YAEGdKvgXs9t\" 10000000") +
+            HelpExampleCli("send",
+                           "\"wLKf2NqwtHk3BfzK5wMDfbKYN1SC3weyR4\" \"wNDue1jHcgRSioSDL4o1AzXz3D72gCMkP6\" "
+                           "\"WICC:1000000:sawi\" \"Hello, WaykiChain!\"") +
             "\nAs json rpc call\n" +
-            HelpExampleRpc("sendtoaddress", "\"wQquTWgzNzLtjUV4Du57p9YAEGdKvgXs9t\", 10000000"));
+            HelpExampleRpc("send",
+                           "\"wLKf2NqwtHk3BfzK5wMDfbKYN1SC3weyR4\", \"wNDue1jHcgRSioSDL4o1AzXz3D72gCMkP6\", "
+                           "\"WICC:1000000:sawi\", \"Hello, WaykiChain!\""));
 
-    EnsureWalletIsUnlocked();
-
-    CRegID sendRegId, recvRegId;
     CKeyID sendKeyId, recvKeyId;
-    int64_t nAmount = 0;
-    int64_t nDefaultFee = SysCfg().GetTxFee();
+    if (!GetKeyId(params[0].get_str(), sendKeyId))
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid sendaddress");
 
-    if (size == 3) {
-        if (!GetKeyId(params[0].get_str(), sendKeyId))
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid sendaddress");
+    if (!GetKeyId(params[1].get_str(), recvKeyId))
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid recvaddress");
 
-        if (!GetKeyId(params[1].get_str(), recvKeyId))
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid recvaddress");
+    CAccount account;
+    if (!pCdMan->pAccountCache->GetAccount(sendKeyId, account)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sender account not exist");
+    }
 
-        if (!pAccountViewTip->GetRegId(CUserID(sendKeyId), sendRegId))
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sendadress not registered or invalid");
+    CPubKey sendPubKey;
+    if (!pWalletMain->GetPubKey(sendKeyId, sendPubKey))
+        throw JSONRPCError(RPC_WALLET_ERROR, "Sender account not found in wallet");
 
-        nAmount = AmountToRawValue(params[2]);
-        if (pAccountViewTip->GetRawBalance(sendKeyId) < nAmount + nDefaultFee)
+    /**
+     * We need to choose the proper field as the sender/receiver's account according to
+     * the two factor: whether the sender's account is registered or not, whether the
+     * RegID is mature or not.
+     *
+     * |-------------------------------|-------------------|-------------------|
+     * |                               |      SENDER       |      RECEIVER     |
+     * |-------------------------------|-------------------|-------------------|
+     * | NOT registered                |     Public Key    |      Key ID       |
+     * |-------------------------------|-------------------|-------------------|
+     * | registered BUT immature       |     Public Key    |      Key ID       |
+     * |-------------------------------|-------------------|-------------------|
+     * | registered AND mature         |     Reg ID        |      Reg ID       |
+     * |-------------------------------|-------------------|-------------------|
+     */
+    CUserID sendUserId, recvUserId;
+    CRegID sendRegId, recvRegId;
+    sendUserId = (pCdMan->pAccountCache->GetRegId(CUserID(sendKeyId), sendRegId) && sendRegId.IsMature(chainActive.Height()))
+                     ? CUserID(sendRegId)
+                     : CUserID(sendPubKey);
+    recvUserId = (pCdMan->pAccountCache->GetRegId(CUserID(recvKeyId), recvRegId) && recvRegId.IsMature(chainActive.Height()))
+                     ? CUserID(recvRegId)
+                     : CUserID(recvKeyId);
+
+    ComboMoney cmCoin;
+    if (!ParseRpcInputMoney(params[2].get_str(), cmCoin, SYMB::WICC))
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Coin ComboMoney format error");
+
+    if (cmCoin.amount == 0)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Coins is zero!");
+
+    ComboMoney cmFee = RPC_PARAM::GetFee(params, 3, UCOIN_TRANSFER_TX);
+
+    TokenSymbol coinSymbol = cmCoin.symbol;
+    uint64_t coinAmount    = cmCoin.amount * CoinUnitTypeTable.at(cmCoin.unit);
+    TokenSymbol feeSymbol  = cmFee.symbol;
+    uint64_t fee           = cmFee.amount * CoinUnitTypeTable.at(cmFee.unit);
+    uint64_t totalAmount = coinAmount;
+    if (coinSymbol == feeSymbol) {
+        totalAmount += fee;
+    }
+
+    if (coinSymbol == SYMB::WICC) {
+        if (account.GetToken(SYMB::WICC).free_amount < totalAmount)
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sendaddress does not have enough bcoins");
+    } else if (coinSymbol == SYMB::WUSD) {
+        if (account.GetToken(SYMB::WUSD).free_amount < totalAmount)
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sendaddress does not have enough coins");
-    } else { // size == 2
-        if (!GetKeyId(params[0].get_str(), recvKeyId))
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid recvaddress");
-
-        nAmount = AmountToRawValue(params[1]);
-
-        set<CKeyID> sKeyIds;
-        sKeyIds.clear();
-        pwalletMain->GetKeys(sKeyIds);
-        if (sKeyIds.empty())
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Wallet has no key");
-
-        bool sufficientFee = false;
-        for (auto &keyId: sKeyIds) {
-            if (keyId != recvKeyId &&
-                pAccountViewTip->GetRegId(CUserID(keyId), sendRegId) &&
-                (pAccountViewTip->GetRawBalance(keyId) >= nAmount + nDefaultFee)) {
-                sendKeyId     = keyId;
-                sufficientFee = true;
-                break;
-            }
-        }
-        if (!sufficientFee) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
-                "Can't find a registered account with sufficient coins in wallet to send");
-        }
+    } else if (coinSymbol == SYMB::WGRT) {
+        if (account.GetToken(SYMB::WGRT).free_amount < totalAmount)
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sendaddress does not have enough coins");
+    } else {
+        throw JSONRPCError(RPC_PARSE_ERROR, "This currency is not currently supported.");
     }
 
-    std::tuple<bool, string> ret;
-    if (pAccountViewTip->GetRegId(CUserID(recvKeyId), recvRegId)) {
-        ret = SendMoney(sendRegId, recvRegId, nAmount, nDefaultFee);
-    } else { //receiver key not registered yet
-        ret = SendMoney(sendRegId, CUserID(recvKeyId), nAmount, nDefaultFee);
+    if (feeSymbol == SYMB::WICC) {
+        if (account.GetToken(SYMB::WICC).free_amount < fee)
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sendaddress does not have enough bcoins");
+    } else if (feeSymbol == SYMB::WUSD) {
+        if (account.GetToken(SYMB::WUSD).free_amount < fee)
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sendaddress does not have enough scoins");
+    } else if (feeSymbol == SYMB::WGRT) {
+        if (account.GetToken(SYMB::WGRT).free_amount < fee)
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sendaddress does not have enough fcoins");
+    } else {
+        throw JSONRPCError(RPC_PARSE_ERROR, "This currency is not currently supported.");
     }
 
+    string memo = params.size() == 5 ? params[4].get_str() : "";
+
+    CCoinTransferTx tx(sendUserId, recvUserId, chainActive.Height(), coinSymbol, coinAmount, feeSymbol, fee, memo);
+
+    if (!pWalletMain->Sign(sendKeyId, tx.ComputeSignatureHash(), tx.signature))
+        throw JSONRPCError(RPC_WALLET_ERROR, "Sign failed");
+
+    std::tuple<bool, string> ret = pWalletMain->CommitTx((CBaseTx *)&tx);
     if (!std::get<0>(ret)) {
         throw JSONRPCError(RPC_WALLET_ERROR, std::get<1>(ret));
     }
 
     Object obj;
-    obj.push_back(Pair("hash", std::get<1>(ret)));
-    return obj;
-}
+    obj.push_back(Pair("txid", std::get<1>(ret)));
 
-Value sendtoaddresswithfee(const Array& params, bool fHelp) {
-    int size = params.size();
-    if (fHelp || (size != 3 && size != 4)) {
-        throw runtime_error(
-            "sendtoaddresswithfee (\"sendaddress\") \"recvaddress\" \"amount\" (fee)\n"
-            "\nSend an amount to a given address with fee.\n"
-            "\nArguments:\n"
-            "1.\"sendaddress\"  (string, optional) The Coin address to send to.\n"
-            "2.\"recvaddress\"  (string, required) The Coin address to receive.\n"
-            "3.\"amount\"       (string, required)\n"
-            "4.\"fee\"          (string, required)\n"
-            "\nResult:\n"
-            "\"transactionid\"  (string) The transaction id.\n"
-            "\nExamples:\n" +
-            HelpExampleCli("sendtoaddress",
-                           "\"wQquTWgzNzLtjUV4Du57p9YAEGdKvgXs9t\" 10000000 10000") +
-            "\nAs json rpc call\n" +
-            HelpExampleRpc("sendtoaddress",
-                           "\"wQquTWgzNzLtjUV4Du57p9YAEGdKvgXs9t\", 10000000, 10000"));
-    }
-
-    EnsureWalletIsUnlocked();
-
-    CRegID sendRegId, recvRegId;
-    CKeyID sendKeyId, recvKeyId;
-    int64_t nAmount = 0;
-    int64_t nFee = 0;
-    int64_t nActualFee = 0;
-    int64_t nDefaultFee = SysCfg().GetTxFee();
-
-    if (size == 4) {
-        if (!GetKeyId(params[0].get_str(), sendKeyId)) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid sendaddress");
-        }
-        if (!GetKeyId(params[1].get_str(), recvKeyId)) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid recvaddress");
-        }
-        nAmount = AmountToRawValue(params[2]);
-        nFee = AmountToRawValue(params[3]);
-        nActualFee = max(nDefaultFee, nFee);
-        if (nFee < nDefaultFee) {
-            char errorMsg[100] = {'\0'};
-            sprintf(errorMsg, "Given fee(%ld) < Default fee (%ld)", nFee, nDefaultFee);
-            throw JSONRPCError(RPC_INSUFFICIENT_FEE, string(errorMsg));
-        }
-
-        if (!pAccountViewTip->GetRegId(CUserID(sendKeyId), sendRegId)) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sendaddress not registered or invalid");
-        }
-
-        if (pAccountViewTip->GetRawBalance(sendKeyId) < nAmount + nActualFee) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sendaddress does not have enough coins");
-        }
-    } else { //sender address omitted
-        if (!GetKeyId(params[0].get_str(), recvKeyId)) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid recvaddress");
-        }
-        nAmount = AmountToRawValue(params[1]);
-        nFee = AmountToRawValue(params[2]);
-        nActualFee = max(nDefaultFee, nFee);
-        if (nFee < nDefaultFee) {
-            char errorMsg[100] = {'\0'};
-            sprintf(errorMsg, "Given fee(%ld) < Default fee (%ld)", nFee, nDefaultFee);
-            throw JSONRPCError(RPC_INSUFFICIENT_FEE, string(errorMsg));
-        }
-
-        set<CKeyID> sKeyIds;
-        sKeyIds.clear();
-        pwalletMain->GetKeys(sKeyIds);
-        if (sKeyIds.empty()) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Wallet has no key!");
-        }
-        bool sufficientFee = false;
-        for (auto &keyId: sKeyIds) {
-            if (keyId != recvKeyId &&
-                pAccountViewTip->GetRegId(CUserID(keyId), sendRegId) &&
-                (pAccountViewTip->GetRawBalance(keyId) >= nAmount + nDefaultFee)) {
-                sendKeyId     = keyId;
-                sufficientFee = true;
-                break;
-            }
-        }
-        if (!sufficientFee) {
-            throw JSONRPCError(RPC_INSUFFICIENT_FEE,
-                "Can't find a registered account with sufficient coins in wallet to send");
-        }
-    }
-
-    std::tuple<bool,string> ret;
-    if (pAccountViewTip->GetRegId(CUserID(recvKeyId), recvRegId)) {
-        ret = SendMoney(sendRegId, recvRegId, nAmount, nFee);
-    } else { //receiver key not registered yet
-        ret = SendMoney(sendRegId, CUserID(recvKeyId), nAmount, nFee);
-    }
-
-    if (!std::get<0>(ret)) {
-        throw JSONRPCError(RPC_WALLET_ERROR, std::get<1>(ret));
-    }
-
-    Object obj;
-    obj.push_back(Pair("hash", std::get<1>(ret)));
     return obj;
 }
 
@@ -356,7 +416,7 @@ Value gensendtoaddressraw(const Array& params, bool fHelp) {
     if (fHelp || size < 4 || size > 5) {
         throw runtime_error(
             "gensendtoaddressraw \"sendaddress\" \"recvaddress\" \"amount\" \"fee\" \"height\"\n"
-            "\n create common transaction by sendaddress, recvaddress, amount, fee, height\n" +
+            "\ncreate common transaction by sendaddress, recvaddress, amount, fee, height\n" +
             HelpRequiringPassphrase() +
             "\nArguments:\n"
             "1.\"sendaddress\"  (string, required) The Coin address to send to.\n"
@@ -365,7 +425,7 @@ Value gensendtoaddressraw(const Array& params, bool fHelp) {
             "4.\"fee\"     (numeric, required)\n"
             "5.\"height\"  (int, optional)\n"
             "\nResult:\n"
-            "\"transactionid\"  (string) The transaction id.\n"
+            "\"rawtx\"  (string) The raw transaction\n"
             "\nExamples:\n" +
             HelpExampleCli("gensendtoaddressraw",
                            "\"WRJAnKvf8F8xdeuaceXJXz9AcNRdVvH5JG\" "
@@ -376,35 +436,118 @@ Value gensendtoaddressraw(const Array& params, bool fHelp) {
                            "\"Wef9QkwAwBhtZaT3ASmMJzC7dt1kzo1xob\", 10000, 10000, 100"));
     }
 
+    EnsureWalletIsUnlocked();
+
     CKeyID sendKeyId, recvKeyId;
-    CAccountViewCache view(*pAccountViewTip, true);
-
-    CUserID sendId, recvId;
-    if (!view.GetUserId(params[0].get_str(), sendId)) {
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Sender Address!");
+    if (!GetKeyId(params[0].get_str(), sendKeyId)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid sendaddress");
     }
 
-    if (!pAccountViewTip->GetKeyId(sendId, sendKeyId)) {
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Get CKeyID failed from CUserID");
+    if (!GetKeyId(params[1].get_str(), recvKeyId)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid recvaddress");
     }
 
-    if (sendId.type() == typeid(CKeyID)) {
-        CRegID regId;
-        if (!pAccountViewTip->GetRegId(sendId, regId)) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sender pubkey not registed");
-        }
-        sendId = regId;
+    int64_t amount = AmountToRawValue(params[2]);
+    int64_t fee    = AmountToRawValue(params[3]);
+    if (amount <= 0) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Send amount <= 0 error!");
     }
 
-    if (!view.GetUserId(params[1].get_str(), recvId))
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid receiver address!");
-
-    if (recvId.type() == typeid(CKeyID)) {
-        CRegID regId;
-        if (pAccountViewTip->GetRegId(recvId, regId)) {
-            recvId = regId;
+    int height = chainActive.Height();
+    if (params.size() > 4) {
+        height = params[4].get_int();
+        if (height <= 0) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid height");
         }
     }
+
+    CPubKey sendPubKey;
+    if (!pWalletMain->GetPubKey(sendKeyId, sendPubKey))
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Key not found in the local wallet.");
+
+    CUserID sendUserId, recvUserId;
+    CRegID sendRegId, recvRegId;
+    sendUserId = (pCdMan->pAccountCache->GetRegId(CUserID(sendKeyId), sendRegId) &&
+                sendRegId.IsMature(chainActive.Height())) ? CUserID(sendRegId) : CUserID(sendPubKey);
+
+    recvUserId = (pCdMan->pAccountCache->GetRegId(CUserID(recvKeyId), recvRegId) &&
+                recvRegId.IsMature(chainActive.Height())) ? CUserID(recvRegId) : CUserID(recvKeyId);
+
+    CAccount fromAccount;
+    if (!pCdMan->pAccountCache->GetAccount(sendUserId, fromAccount))
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Sender User Account not found.");
+
+    if (fromAccount.GetToken(SYMB::WICC).free_amount < (uint64_t)amount)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Sender User Account insufficient amount to transfer");
+
+    CBaseCoinTransferTx tx;
+    tx.txUid        = sendUserId;
+    tx.toUid        = recvUserId;
+    tx.coin_amount  = amount;
+    tx.llFees       = fee;
+    tx.valid_height = height;
+
+    if (!pWalletMain->Sign(sendKeyId, tx.ComputeSignatureHash(), tx.signature)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Sign failed");
+    }
+
+    CDataStream ds(SER_DISK, CLIENT_VERSION);
+    std::shared_ptr<CBaseTx> pBaseTx = tx.GetNewInstance();
+    ds << pBaseTx;
+    Object obj;
+    obj.push_back(Pair("rawtx", HexStr(ds.begin(), ds.end())));
+    return obj;
+}
+
+Value genmulsigtx(const Array& params, bool fHelp) {
+    int size = params.size();
+    if (fHelp || size < 4 || size > 5) {
+        throw runtime_error(
+            "genmulsigtx \"multisigscript\" \"recvaddress\" \"amount\" \"fee\" \"height\"\n"
+            "\n create multisig transaction by multisigscript, recvaddress, amount, fee, height\n" +
+            HelpRequiringPassphrase() +
+            "\nArguments:\n"
+            "1.\"multisigscript\"  (string, required) The Coin address to send to.\n"
+            "2.\"recvaddress\"  (string, required) The Coin address to receive.\n"
+            "3.\"amount\"  (numeric, required)\n"
+            "4.\"fee\"     (numeric, required)\n"
+            "5.\"height\"  (int, optional)\n"
+            "\nResult:\n"
+            "\"txid\"  (string) The transaction id.\n"
+            "\nExamples:\n" +
+            HelpExampleCli("genmulsigtx",
+                           "\"0203210233e68ec1402f875af47201efca7c9f210c93f10016ad73d6cd789212d5571"
+                           "e9521031f3d66a05bf20e83e046b74d9073d925f5dce29970623595bc4d66ed81781dd5"
+                           "21034819476f12ac0e53bd82bc3205c91c40e9c569b08af8db04503afdebceb7134c\" "
+                           "\"Wef9QkwAwBhtZaT3ASmMJzC7dt1kzo1xob\" 10000 10000 100") +
+            "\nAs json rpc call\n" +
+            HelpExampleRpc(
+                "genmulsigtx",
+                "\"0203210233e68ec1402f875af47201efca7c9f210c93f10016ad73d6cd789212d5571e9521031f3d"
+                "66a05bf20e83e046b74d9073d925f5dce29970623595bc4d66ed81781dd521034819476f12ac0e53bd"
+                "82bc3205c91c40e9c569b08af8db04503afdebceb7134c\", "
+                "\"Wef9QkwAwBhtZaT3ASmMJzC7dt1kzo1xob\", 10000, 10000, 100"));
+    }
+
+    EnsureWalletIsUnlocked();
+
+    vector<unsigned char> multiScript = ParseHex(params[0].get_str());
+    if (multiScript.empty() || multiScript.size() > MAX_MULSIG_SCRIPT_SIZE) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid script size");
+    }
+
+    CKeyID recvKeyId;
+    CUserID recvUserId;
+    CRegID recvRegId;
+    int height = chainActive.Height();
+
+    if (!GetKeyId(params[1].get_str(), recvKeyId)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid recvaddress");
+    }
+
+    recvUserId = (pCdMan->pAccountCache->GetRegId(CUserID(recvKeyId), recvRegId) && recvRegId.IsMature(chainActive.Height()))
+                     ? CUserID(recvRegId)
+                     : CUserID(recvKeyId);
 
     int64_t amount = AmountToRawValue(params[2]);
     int64_t fee    = AmountToRawValue(params[3]);
@@ -412,90 +555,107 @@ Value gensendtoaddressraw(const Array& params, bool fHelp) {
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Send 0 amount disallowed!");
     }
 
-    int height = chainActive.Tip()->nHeight;
     if (params.size() > 4) {
         height = params[4].get_int();
     }
 
-    std::shared_ptr<CCommonTx> tx =
-        std::make_shared<CCommonTx>(sendId, recvId, fee, amount, height);
-    if (!pwalletMain->Sign(sendKeyId, tx->SignatureHash(), tx->signature)) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Sign failed");
+    CDataStream scriptDataStream(multiScript, SER_DISK, CLIENT_VERSION);
+    CMulsigScript script;
+    try {
+        scriptDataStream >> script;
+    } catch (std::exception& e) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid script content");
     }
 
+    int8_t required = (int8_t)script.GetRequired();
+    std::set<CPubKey> pubKeys = script.GetPubKeys();
+    vector<CSignaturePair> signaturePairs;
+    CRegID regId;
+    for (const auto& pubKey : pubKeys) {
+        if (pCdMan->pAccountCache->GetRegId(CUserID(pubKey), regId) && regId.IsMature(chainActive.Height())) {
+            signaturePairs.push_back(CSignaturePair(regId, UnsignedCharArray()));
+        } else {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Immature regid or invalid key");
+        }
+    }
+
+    CMulsigTx tx;
+    tx.signaturePairs = signaturePairs;
+    tx.desUserId      = recvUserId;
+    tx.bcoins         = amount;
+    tx.llFees         = fee;
+    tx.required       = required;
+    tx.valid_height   = height;
+
     CDataStream ds(SER_DISK, CLIENT_VERSION);
-    std::shared_ptr<CBaseTx> pBaseTx = tx->GetNewInstance();
+    std::shared_ptr<CBaseTx> pBaseTx = tx.GetNewInstance();
     ds << pBaseTx;
     Object obj;
     obj.push_back(Pair("rawtx", HexStr(ds.begin(), ds.end())));
     return obj;
 }
 
-Value getassets(const Array& params, bool fHelp)
-{
+Value getcontractassets(const Array& params, bool fHelp) {
     if (fHelp || params.size() < 1) {
-        throw runtime_error("getassets \"contract_regid\"\n"
+        throw runtime_error("getcontractassets \"contract_regid\"\n"
             "\nThe collection of all assets\n"
             "\nArguments:\n"
             "1.\"contract_regid\": (string, required) Contract RegId\n"
             "\nResult:\n"
             "\nExamples:\n"
-            + HelpExampleCli("getassets", "11-1")
-            + HelpExampleRpc("getassets", "11-1"));
+            + HelpExampleCli("getcontractassets", "11-1")
+            + HelpExampleRpc("getcontractassets", "11-1"));
     }
 
     CRegID regid(params[0].get_str());
     if (regid.IsEmpty() == true) {
-        throw runtime_error("in getassets :scriptid size is error!\n");
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid contract regid");
     }
 
-    if (!pScriptDBTip->HaveScript(regid)) {
-        throw runtime_error("in getassets :scriptid  is not exist!\n");
+    if (!pCdMan->pContractCache->HaveContract(regid)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Failed to find contract");
     }
 
     Object retObj;
 
-    set<CKeyID> sKeyid;
-    pwalletMain->GetKeys(sKeyid);
-    if (sKeyid.empty()) {
-        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No Key In wallet \n");
+    set<CKeyID> keyIds;
+    pWalletMain->GetKeys(keyIds);
+    if (keyIds.empty()) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No keys in wallet");
     }
 
     uint64_t totalassets = 0;
     Array arrayAssetIds;
     set<CKeyID>::iterator it;
-    for (it = sKeyid.begin(); it != sKeyid.end(); it++) {
-        CKeyID KeyId = *it;
+    for (it = keyIds.begin(); it != keyIds.end(); it++) {
+        CKeyID keyId = *it;
 
-        if (KeyId.IsNull()) {
+        if (keyId.IsNull()) {
             continue;
         }
 
-        vector<unsigned char> veckey;
-        string addr = KeyId.ToAddress();
-        veckey.assign(addr.c_str(), addr.c_str() + addr.length());
-
+        string addr = keyId.ToAddress();
         std::shared_ptr<CAppUserAccount> temp = std::make_shared<CAppUserAccount>();
-        if (!pScriptDBTip->GetScriptAcc(regid, veckey, *temp.get())) {
+        if (!pCdMan->pContractCache->GetContractAccount(regid, addr, *temp.get())) {
             continue;
         }
 
-        temp.get()->AutoMergeFreezeToFree(chainActive.Tip()->nHeight);
-        uint64_t freeValues = temp.get()->GetLlValues();
+        temp.get()->AutoMergeFreezeToFree(chainActive.Height());
+        uint64_t freeValues = temp.get()->GetBcoins();
         uint64_t freezeValues = temp.get()->GetAllFreezedValues();
         totalassets += freeValues;
         totalassets += freezeValues;
 
         Object result;
-        result.push_back(Pair("Address", addr));
-        result.push_back(Pair("FreeValues", freeValues));
-        result.push_back(Pair("FreezedFund", freezeValues));
+        result.push_back(Pair("address", addr));
+        result.push_back(Pair("free_value", freeValues));
+        result.push_back(Pair("freezed_value", freezeValues));
 
         arrayAssetIds.push_back(result);
     }
 
-    retObj.push_back(Pair("TotalAssets", totalassets));
-    retObj.push_back(Pair("Lists", arrayAssetIds));
+    retObj.push_back(Pair("total_assets", totalassets));
+    retObj.push_back(Pair("lists", arrayAssetIds));
 
     return retObj;
 }
@@ -512,7 +672,7 @@ Value getassets(const Array& params, bool fHelp)
 //                 "2. amount (required)\n"
 //                 "3.\"description\"   (string, required) \n"
 //                 "\nResult:\n"
-//                 "\"transactionid\"  (string) The transaction id.\n"
+//                 "\"txid\"  (string) The transaction id.\n"
 //                 "\nExamples:\n"
 //                 + HelpExampleCli("dispersebalance", "\"1M72Sfpbz1BPpXFHz9m3CdqATR44Jvaydd\" 0.1")
 //                 + HelpExampleRpc("dispersebalance", "\"1M72Sfpbz1BPpXFHz9m3CdqATR44Jvaydd\", 0.1"));
@@ -525,12 +685,12 @@ Value getassets(const Array& params, bool fHelp)
 //     if (!GetKeyId(params[0].get_str(), sendKeyId)) {
 //         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "send address Invalid  ");
 //     }
-//     if(!pwalletMain->HasKey(sendKeyId)) {
+//     if(!pWalletMain->HaveKey(sendKeyId)) {
 //         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "send address Invalid  ");
 //     }
 
 //     CRegID sendRegId;
-//     if (!pAccountViewTip->GetRegId(CUserID(sendKeyId), sendRegId)) {
+//     if (!pCdMan->pAccountCache->GetRegId(CUserID(sendKeyId), sendRegId)) {
 //         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "send address not activated  ");
 //     }
 
@@ -540,9 +700,9 @@ Value getassets(const Array& params, bool fHelp)
 //         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "nAmount <= 0  ");
 //     }
 
-//     set<CKeyID> sKeyid;
-//     pwalletMain->GetKeys(sKeyid); //get addrs
-//     if (sKeyid.empty()) {
+//     set<CKeyID> keyIds;
+//     pWalletMain->GetKeys(keyIds); //get addrs
+//     if (keyIds.empty()) {
 //         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No Key In wallet \n");
 //     }
 
@@ -551,7 +711,7 @@ Value getassets(const Array& params, bool fHelp)
 //     set<CKeyID>::iterator it;
 //     CKeyID recvKeyId;
 
-//     for (it = sKeyid.begin(); it!=sKeyid.end(); it++) {
+//     for (it = keyIds.begin(); it!=keyIds.end(); it++) {
 //         recvKeyId = *it;
 //         if (recvKeyId.IsNull()) {
 //             continue;
@@ -563,23 +723,23 @@ Value getassets(const Array& params, bool fHelp)
 //         CRegID revreg;
 //         CUserID rev;
 
-//         if (pAccountViewTip->GetRegId(CUserID(recvKeyId), revreg)) {
+//         if (pCdMan->pAccountCache->GetRegId(CUserID(recvKeyId), revreg)) {
 //             rev = revreg;
 //         } else {
 //             rev = recvKeyId;
 //         }
 
-//         if(pAccountViewTip->GetRawBalance(sendreg) < nAmount + SysCfg().GetTxFee()) {
+//         if (pCdMan->pAccountCache->GetAccountFreeAmount(sendreg, SYMB::WICC) < nAmount + SysCfg().GetTxFee()) {
 //             break;
 //         }
 
 //         CTransaction tx(sendreg, rev, SysCfg().GetTxFee(), nAmount , chainActive.Height());
 
-//         if (!pwalletMain->Sign(sendKeyId, tx.SignatureHash(), tx.signature)) {
+//         if (!pWalletMain->Sign(sendKeyId, tx.ComputeSignatureHash(), tx.signature)) {
 //             continue;
 //         }
 
-//         std::tuple<bool,string> ret = pwalletMain->CommitTransaction((CBaseTx *) &tx);
+//         std::tuple<bool,string> ret = pWalletMain->CommitTx((CBaseTx *) &tx);
 //         if(!std::get<0>(ret))
 //              continue;
 //         arrayTxIds.push_back(std::get<1>(ret));
@@ -607,22 +767,22 @@ Value backupwallet(const Array& params, bool fHelp)
         throw JSONRPCError(RPC_WALLET_FILEPATH_INVALID,
             "Wallet backup file shall not be saved into the Data dir to avoid likely file overwrite.");
 
-    if (!BackupWallet(*pwalletMain, strDest))
+    if (!BackupWallet(*pWalletMain, strDest))
         throw JSONRPCError(RPC_WALLET_ERROR, "Error: Wallet backup failed!");
 
     return Value::null;
 }
 
-static void LockWallet(CWallet* pWallet)
+static void LockWallet()
 {
     LOCK(cs_nWalletUnlockTime);
     nWalletUnlockTime = 0;
-    pWallet->Lock();
+    pWalletMain->Lock();
 }
 
 Value walletpassphrase(const Array& params, bool fHelp)
 {
-    if (pwalletMain->IsEncrypted() && (fHelp || params.size() != 2))
+    if (pWalletMain->IsEncrypted() && (fHelp || params.size() != 2))
         throw runtime_error("walletpassphrase \"passphrase\" timeout\n"
             "\nStores the wallet decryption key in memory for 'timeout' seconds.\n"
             "This is needed prior to performing transactions related to private keys such as sending WICC coins\n"
@@ -641,12 +801,12 @@ Value walletpassphrase(const Array& params, bool fHelp)
             + HelpExampleRpc("walletpassphrase", "\"my passphrase\", 60")
         );
 
-    LOCK2(cs_main, pwalletMain->cs_wallet);
+    LOCK2(cs_main, pWalletMain->cs_wallet);
 
     if (fHelp)
         return true;
 
-    if (!pwalletMain->IsEncrypted())
+    if (!pWalletMain->IsEncrypted())
         throw JSONRPCError(RPC_WALLET_WRONG_ENC_STATE,
             "Error: running with an unencrypted wallet, but walletpassphrase was called.");
 
@@ -658,7 +818,7 @@ Value walletpassphrase(const Array& params, bool fHelp)
     strWalletPass = params[0].get_str().c_str();
     //assert(0);
     if (strWalletPass.length() > 0) {
-        if (!pwalletMain->Unlock(strWalletPass))
+        if (!pWalletMain->Unlock(strWalletPass))
             throw JSONRPCError(RPC_WALLET_PASSPHRASE_INCORRECT, "Error: The wallet passphrase entered was incorrect.");
     } else
         throw runtime_error(
@@ -668,7 +828,8 @@ Value walletpassphrase(const Array& params, bool fHelp)
     int64_t nSleepTime = params[1].get_int64();
     LOCK(cs_nWalletUnlockTime);
     nWalletUnlockTime = GetTime() + nSleepTime;
-    RPCRunLater("lockwallet", boost::bind(LockWallet, pwalletMain), nSleepTime);
+    RPCRunLater("lockwallet", LockWallet, nSleepTime);
+
     Object retObj;
     retObj.push_back( Pair("wallet_unlocked", true) );
     return retObj;
@@ -676,7 +837,7 @@ Value walletpassphrase(const Array& params, bool fHelp)
 
 Value walletpassphrasechange(const Array& params, bool fHelp)
 {
-    if (pwalletMain->IsEncrypted() && (fHelp || params.size() != 2))
+    if (pWalletMain->IsEncrypted() && (fHelp || params.size() != 2))
         throw runtime_error("walletpassphrasechange \"oldpassphrase\" \"newpassphrase\"\n"
             "\nChanges the wallet passphrase from 'oldpassphrase' to 'newpassphrase'.\n"
             "\nArguments:\n"
@@ -690,7 +851,7 @@ Value walletpassphrasechange(const Array& params, bool fHelp)
     if (fHelp)
         return true;
 
-    if (!pwalletMain->IsEncrypted())
+    if (!pWalletMain->IsEncrypted())
         throw JSONRPCError(RPC_WALLET_WRONG_ENC_STATE,
             "Error: running with an unencrypted wallet, but walletpassphrasechange was called.");
 
@@ -709,7 +870,7 @@ Value walletpassphrasechange(const Array& params, bool fHelp)
             "walletpassphrasechange <oldpassphrase> <newpassphrase>\n"
             "Changes the wallet passphrase from <oldpassphrase> to <newpassphrase>.");
 
-    if (!pwalletMain->ChangeWalletPassphrase(strOldWalletPass, strNewWalletPass))
+    if (!pWalletMain->ChangeWalletPassphrase(strOldWalletPass, strNewWalletPass))
         throw JSONRPCError(RPC_WALLET_PASSPHRASE_INCORRECT, "Error: The wallet passphrase entered was incorrect.");
     Object retObj;
     retObj.push_back(Pair("chgpwd", true));
@@ -718,7 +879,7 @@ Value walletpassphrasechange(const Array& params, bool fHelp)
 
 Value encryptwallet(const Array& params, bool fHelp)
 {
-    if (fHelp || (!pwalletMain->IsEncrypted() && params.size() != 1)) {
+    if (fHelp || (!pWalletMain->IsEncrypted() && params.size() != 1)) {
         throw runtime_error(
             "encryptwallet \"passphrase\"\n"
             "\nEncrypts the wallet with 'passphrase'. This is for first time encryption.\n"
@@ -742,9 +903,9 @@ Value encryptwallet(const Array& params, bool fHelp)
             + HelpExampleRpc("encryptwallet", "\"my passphrase\"")
         );
     }
-    LOCK2(cs_main, pwalletMain->cs_wallet);
+    LOCK2(cs_main, pWalletMain->cs_wallet);
 
-    if (pwalletMain->IsEncrypted())
+    if (pWalletMain->IsEncrypted())
         throw JSONRPCError(RPC_WALLET_WRONG_ENC_STATE, "Error: Wallet was already encrypted and shall not be encrypted again.");
 
     // TODO: get rid of this .c_str() by implementing SecureString::operator=(string)
@@ -759,7 +920,7 @@ Value encryptwallet(const Array& params, bool fHelp)
             "Encrypts the wallet with <passphrase>.");
     }
 
-    if (!pwalletMain->EncryptWallet(strWalletPass))
+    if (!pWalletMain->EncryptWallet(strWalletPass))
         throw JSONRPCError(RPC_WALLET_ENCRYPTION_FAILED, "Error: Failed to encrypt the wallet.");
 
     //BDB seems to have a bad habit of writing old data into
@@ -767,11 +928,11 @@ Value encryptwallet(const Array& params, bool fHelp)
     //unencrypted private keys. So:
     StartShutdown();
 
-//    string defaultFilename = SysCfg().GetArg("-wallet", "wallet.dat");
-//    string strFileCopy = defaultFilename + ".rewrite";
+//    string defaultFileName = SysCfg().GetArg("-wallet", "wallet.dat");
+//    string strFileCopy = defaultFileName + ".rewrite";
 //
-//    boost::filesystem::remove(GetDataDir() / defaultFilename);
-//    boost::filesystem::rename(GetDataDir() / strFileCopy, GetDataDir() / defaultFilename);
+//    boost::filesystem::remove(GetDataDir() / defaultFileName);
+//    boost::filesystem::rename(GetDataDir() / strFileCopy, GetDataDir() / defaultFileName);
 
     Object retObj;
     retObj.push_back( Pair("wallet_encrypted", true) );
@@ -780,7 +941,7 @@ Value encryptwallet(const Array& params, bool fHelp)
 
 Value walletlock(const Array& params, bool fHelp)
 {
-    if (fHelp || (pwalletMain->IsEncrypted() && params.size() != 0)) {
+    if (fHelp || (pWalletMain->IsEncrypted() && params.size() != 0)) {
         throw runtime_error("walletlock\n"
             "\nRemoves the wallet encryption key from memory, hence locking the wallet.\n"
             "After calling this method, you will need to call walletpassphrase again\n"
@@ -789,21 +950,21 @@ Value walletlock(const Array& params, bool fHelp)
             "\nSet the passphrase for 2 minutes to perform a transaction\n"
             + HelpExampleCli("walletpassphrase", "\"my pass phrase\" 120") +
             "\nPerform a send (requires passphrase set)\n"
-            + HelpExampleCli("sendtoaddress", "\"1M72Sfpbz1BPpXFHz9m3CdqATR44Jvaydd\" 1.0") +
+            + HelpExampleCli("send", "\"0-1\" \"0-2\" 10000 10000") +
             "\nClear the passphrase since we are done before 2 minutes is up\n"
             + HelpExampleCli("walletlock", "") +
             "\nAs json rpc call\n"
             + HelpExampleRpc("walletlock", ""));
     }
 
-    if (!pwalletMain->IsEncrypted()) {
+    if (!pWalletMain->IsEncrypted()) {
         throw JSONRPCError(RPC_WALLET_WRONG_ENC_STATE,
             "Error: running with an unencrypted wallet, but walletlock was called.");
     }
 
     {
         LOCK(cs_nWalletUnlockTime);
-        pwalletMain->Lock();
+        pWalletMain->Lock();
         nWalletUnlockTime = 0;
     }
 
@@ -849,7 +1010,7 @@ Value getwalletinfo(const Array& params, bool fHelp)
             "  \"wallet_locked\":  true|false,   (boolean) whether the wallet is locked or not\n"
             "  \"unlocked_until\": xxxxx,        (numeric) the timestamp in seconds since epoch (midnight Jan 1 1970 GMT) that the wallet is unlocked for transfers, or 0 if the wallet is locked\n"
             "  \"coinfirmed_tx_num\": xxxxxxx,   (numeric) the number of confirmed tx in the wallet\n"
-            "  \"uncomfirmed_tx_num\": xxxxxx,   (numeric) the number of unconfirmed tx in the wallet\n"
+            "  \"unconfirmed_tx_num\": xxxxxx,   (numeric) the number of unconfirmed tx in the wallet\n"
             "}\n"
             "\nExamples:\n"
             + HelpExampleCli("getwalletinfo", "")
@@ -858,13 +1019,13 @@ Value getwalletinfo(const Array& params, bool fHelp)
     }
 
     Object obj;
-    obj.push_back(Pair("wallet_version",    pwalletMain->GetVersion()));
-    obj.push_back(Pair("wallet_balance",    ValueFromAmount(pwalletMain->GetRawBalance())));
-    obj.push_back(Pair("wallet_encrypted",  pwalletMain->IsEncrypted()));
-    obj.push_back(Pair("wallet_locked",     pwalletMain->IsLocked()));
+    obj.push_back(Pair("wallet_version",    pWalletMain->GetVersion()));
+    obj.push_back(Pair("wallet_balance",    ValueFromAmount(pWalletMain->GetFreeBcoins())));
+    obj.push_back(Pair("wallet_encrypted",  pWalletMain->IsEncrypted()));
+    obj.push_back(Pair("wallet_locked",     pWalletMain->IsLocked()));
     obj.push_back(Pair("unlocked_until",    nWalletUnlockTime));
-    obj.push_back(Pair("coinfirmed_tx_num", (int)pwalletMain->mapInBlockTx.size()));
-    obj.push_back(Pair("unconfirmed_tx_num",(int)pwalletMain->UnConfirmTx.size()));
+    obj.push_back(Pair("coinfirmed_tx_num", (int)pWalletMain->mapInBlockTx.size()));
+    obj.push_back(Pair("unconfirmed_tx_num",(int)pWalletMain->unconfirmedTx.size()));
     return obj;
 }
 

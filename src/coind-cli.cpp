@@ -1,15 +1,14 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2013 The WaykiChain developers
-// Copyright (c) 2016 The Coin developers
+// Copyright (c) 2017-2019 The WaykiChain Developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "util.h"
+
+#include "commons/util.h"
 #include "init.h"
-#include "rpc/rpcclient.h"
-#include "rpcprotocol.h"
-#include "ui_interface.h" /* for _(...) */
-#include "chainparams.h"
+#include "rpc/core/rpcclient.h"
+#include "rpc/core/rpcprotocol.h"
+#include "config/chainparams.h"
 
 #include <boost/filesystem/operations.hpp>
 
@@ -29,9 +28,9 @@ static bool AppInitRPC(int argc, char* argv[])
         // First part of help message is specific to RPC client
         string strUsage = _("Coin Core RPC client version") + " " + FormatFullVersion() + "\n\n" +
             _("Usage:") + "\n" +
-              "  Coin-cli [options] <command> [params]  " + _("Send command to Coin Core") + "\n" +
-              "  Coin-cli [options] help                " + _("List commands") + "\n" +
-              "  Coin-cli [options] help <command>      " + _("Get help for a command") + "\n";
+              "  coincli [options] <command> [params]  " + _("Send command to Coin Core") + "\n" +
+              "  coincli [options] help                " + _("List commands") + "\n" +
+              "  coincli [options] help <command>      " + _("Get help for a command") + "\n";
 
         strUsage += "\n" + HelpMessageCli(true);
 

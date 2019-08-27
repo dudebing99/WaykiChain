@@ -1,5 +1,12 @@
 #!/bin/sh
 
+printf "Check permission ...\\n"
+if [ $UID -ne 0 ]; then
+    echo "Superuser privileges are required to run this script."
+    echo "e.g. \"sudo $0\""
+    exit 1
+fi
+
 printf "Prepare prerequisites ...\\n"
 
 ARCH=$( uname )
@@ -16,8 +23,8 @@ case "$ARCH" in
 
     OS_NAME=$( cat /etc/os-release | grep ^NAME | cut -d'=' -f2 | sed 's/\"//gI' )
     OS_VER=$( grep -i version_id /etc/os-release | cut -d'=' -f2 | sed 's/[^0-9\.]//gi' )
-    OS_MAJ=$(echo "${OS_VER}" | cut -d'.' -f1)
-    OS_MIN=$(echo "${OS_VER}" | cut -d'.' -f2)
+    OS_MAJ=$( echo "${OS_VER}" | cut -d'.' -f1 )
+    OS_MIN=$( echo "${OS_VER}" | cut -d'.' -f2 )
 
     printf "Environment Info, OS_NAME: ${OS_NAME}, OS_VER: ${OS_VER}, OS_MAJ: ${OS_MAJ}, OS_MIN: ${OS_MIN}\\n"
 
@@ -35,17 +42,20 @@ case "$ARCH" in
           exit 1
         fi
 
+        printf "Install software-properties-common ...\\n"
+        apt-get install software-properties-common -y
+
         printf "Add bitcoin PPA ...\\n"
-        sudo add-apt-repository ppa:bitcoin/bitcoin -y
+        add-apt-repository ppa:bitcoin/bitcoin -y
 
         printf "Run apt-get update ...\\n"
         apt-get update
 
         printf "Install all prerequisite libraries/tools ...\\n"
-        sudo apt-get install -y build-essential libtool autotools-dev automake pkg-config libssl-dev \
+        apt-get install -y build-essential libtool autotools-dev automake pkg-config libssl-dev \
         libevent-dev bsdmainutils python3 libboost-system-dev libboost-filesystem-dev \
         libboost-chrono-dev libboost-program-options-dev libboost-test-dev libboost-thread-dev \
-        software-properties-common libdb4.8-dev libdb4.8++-dev git
+        libdb4.8-dev libdb4.8++-dev git
       ;;
       "CentOS Linux")
         if [ "${OS_MAJ}" -lt 7 ]; then
@@ -55,10 +65,10 @@ case "$ARCH" in
         fi
 
         printf "Install epel-release ...\\n"
-        sudo yum install -y epel-release
+        yum install -y epel-release
 
         printf "Install all prerequisite libraries/tools ...\\n"
-        sudo yum install -y autoconf automake boost-devel libdb4-cxx libdb4-cxx-devel \
+        yum install -y make cmake autoconf automake boost-devel libdb4-cxx libdb4-cxx-devel \
         libevent-devel libtool openssl-devel gcc-c++ git
       ;;
       *)

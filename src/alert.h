@@ -7,7 +7,7 @@
 #ifndef _COINALERT_H_
 #define _COINALERT_H_
 
-#include "serialize.h"
+#include "commons/serialize.h"
 #include "sync.h"
 
 #include <map>
@@ -98,7 +98,7 @@ public:
     bool Cancels(const CAlert& alert) const;
     bool AppliesTo(int nVersion, string strSubVerIn) const;
     bool AppliesToMe() const;
-    bool RelayTo(CNode* pnode) const;
+    bool RelayTo(CNode* pNode) const;
     bool CheckSignature() const;
     bool ProcessAlert(bool fThread = true);
 

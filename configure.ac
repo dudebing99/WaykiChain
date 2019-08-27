@@ -6,7 +6,7 @@ define(_CLIENT_VERSION_REVISION,    0)
 define(_CLIENT_VERSION_BUILD,       1)
 define(_CLIENT_VERSION_IS_RELEASE,  true)
 define(_COPYRIGHT_YEAR, 2019)
-AC_INIT([Coin Core],[_CLIENT_VERSION_MAJOR._CLIENT_VERSION_MINOR._CLIENT_VERSION_REVISION],[info@waykichain.com],[Coin])
+AC_INIT([Coin Core],[_CLIENT_VERSION_MAJOR._CLIENT_VERSION_MINOR._CLIENT_VERSION_REVISION],[info@waykichainhk.com],[Coin])
 AC_CONFIG_AUX_DIR([src/build-aux])
 AC_CONFIG_MACRO_DIR([src/m4])
 AC_CANONICAL_HOST
@@ -73,6 +73,11 @@ AC_ARG_ENABLE(tests,
     [use_tests=$enableval],
     [use_tests=no])
 
+AC_ARG_ENABLE(unit-tests,
+    AS_HELP_STRING([--enable-unit-tests],[compile tests (default is no)]),
+    [use_unit_tests=$enableval],
+    [use_unit_tests=no])
+
 AC_ARG_ENABLE(ptests,
     AS_HELP_STRING([--enable-ptests],[compile ptests (default is no)]),
     [use_ptests=$enableval],
@@ -120,7 +125,7 @@ AC_ARG_ENABLE([glibc-back-compat],
 
 
 AC_CONFIG_SRCDIR([src])
-AC_CONFIG_HEADERS([src/coin-config.h])
+AC_CONFIG_HEADERS([src/config/coin-config.h])
 
 dnl Checks for programs.
 AC_PROG_CXX
@@ -438,7 +443,7 @@ AX_BOOST_PROGRAM_OPTIONS
 AX_BOOST_THREAD
 AX_BOOST_CHRONO
 
-if test x$use_tests = xyes || test x$use_ptests = xyes; then
+if test x$use_tests = xyes || test x$use_ptests = xyes || test x$use_unit_tests = xyes; then
 
   if test x$HEXDUMP = x; then
     AC_MSG_ERROR(hexdump is required for tests)
@@ -538,6 +543,12 @@ AC_ARG_WITH([daemon],
   [build_bitcoind=$withval],
   [build_bitcoind=no])
 
+AC_ARG_WITH([coinlua],
+  [AS_HELP_STRING([--with-coinlua],
+  [with coinlua (default is no)])],
+  [build_coinlua=$withval],
+  [build_coinlua=no])
+
 BITCOIN_QT_INIT
 
 if test x$use_pkgconfig = xyes; then
@@ -555,6 +566,10 @@ if test x$use_pkgconfig = xyes; then
       if test x$use_qr != xno; then
         BITCOIN_QT_CHECK([PKG_CHECK_MODULES([QR], [libqrencode], [have_qrencode=yes], [have_qrencode=no])])
       fi
+      PKG_CHECK_MODULES([EVENT], [libevent],, [AC_MSG_ERROR(libevent not found.)])
+      if test x$TARGET_OS != xwindows; then
+        PKG_CHECK_MODULES([EVENT_PTHREADS], [libevent_pthreads],, [AC_MSG_ERROR(libevent_pthreads not found.)])
+      fi
     ]
   )
 else
@@ -568,6 +583,14 @@ else
     BITCOIN_QT_CHECK([AC_CHECK_LIB([qrencode], [main],, [have_qrencode=no])])
     BITCOIN_QT_CHECK([AC_CHECK_HEADER([qrencode.h],, have_qrencode=no)])
   fi
+
+  AC_CHECK_HEADER([event2/event.h],, AC_MSG_ERROR(libevent headers missing),)
+  AC_CHECK_LIB([event],[main],EVENT_LIBS=-levent,AC_MSG_ERROR(libevent missing))
+  if test x$TARGET_OS != xwindows; then
+    AC_CHECK_LIB([event_pthreads],[main],EVENT_PTHREADS_LIBS=-levent_pthreads,AC_MSG_ERROR(libevent_pthreads missing))
+  fi
+
+
 fi
 
 AC_MSG_CHECKING([whether to build bitcoind])
@@ -577,6 +600,10 @@ AC_MSG_RESULT($build_bitcoind)
 AC_MSG_CHECKING([whether to build bitcoin-cli])
 AM_CONDITIONAL([BUILD_BITCOIN_CLI], [test x$build_bitcoin_cli = xyes])
 AC_MSG_RESULT($build_bitcoin_cli)
+
+AC_MSG_CHECKING([whether to build coinlua])
+AM_CONDITIONAL([BUILD_COINLUA], [test x$build_coinlua = xyes])
+AC_MSG_RESULT($build_coinlua)
 
 dnl sets $bitcoin_enable_qt, $bitcoin_enable_qt_test, $bitcoin_enable_qt_dbus
 BITCOIN_QT_CONFIGURE([$use_pkgconfig], [qt4])
@@ -679,7 +706,13 @@ fi
 AC_MSG_CHECKING([whether to build test_bitcoin])
 if test x$use_tests = xyes; then
   AC_MSG_RESULT([yes])
-  BUILD_TEST="test"
+else
+  AC_MSG_RESULT([no])
+fi
+
+AC_MSG_CHECKING([whether to build unit_tests])
+if test x$use_unit_tests = xyes; then
+  AC_MSG_RESULT([yes])
 else
   AC_MSG_RESULT([no])
 fi
@@ -705,6 +738,8 @@ AM_CONDITIONAL([USE_LCOV],[test x$use_lcov == xyes])
 AM_CONDITIONAL([USE_COMPARISON_TOOL],[test x$use_comparison_tool != xno])
 AM_CONDITIONAL([USE_COMPARISON_TOOL_REORG_TESTS],[test x$use_comparison_tool_reorg_test != xno])
 AM_CONDITIONAL([GLIBC_BACK_COMPAT],[test x$use_glibc_compat = xyes])
+AM_CONDITIONAL([BUILD_TESTS], [test x$use_tests = xyes])
+AM_CONDITIONAL([BUILD_UNIT_TESTS], [test x$use_unit_tests = xyes])
 
 AC_DEFINE(CLIENT_VERSION_MAJOR, _CLIENT_VERSION_MAJOR, [Major version])
 AC_DEFINE(CLIENT_VERSION_MINOR, _CLIENT_VERSION_MINOR, [Minor version])
@@ -726,11 +761,14 @@ AC_SUBST(AM_CPPFLAGS)
 AC_SUBST(BOOST_LIBS)
 AC_SUBST(TESTDEFS)
 AC_SUBST(LEVELDB_TARGET_FLAGS)
-AC_SUBST(BUILD_TEST)
 AC_SUBST(BUILD_P_TEST)
 AC_SUBST(BUILD_QT)
 AC_SUBST(BUILD_TEST_QT)
-AC_CONFIG_FILES([Makefile src/Makefile src/test/Makefile src/ptest/Makefile share/setup.nsi share/qt/Info.plist])
+
+AC_SUBST(EVENT_LIBS)
+AC_SUBST(EVENT_PTHREADS_LIBS)
+
+AC_CONFIG_FILES([Makefile src/Makefile src/ptests/Makefile share/setup.nsi share/qt/Info.plist])
 AC_CONFIG_FILES([qa/pull-tester/run-bitcoind-for-test.sh],[chmod +x qa/pull-tester/run-bitcoind-for-test.sh])
 AC_CONFIG_FILES([qa/pull-tester/build-tests.sh],[chmod +x qa/pull-tester/build-tests.sh])
 

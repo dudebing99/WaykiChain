@@ -3,13 +3,13 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "base58.h"
+#include "commons/base58.h"
 #include "init.h"
 #include "main.h"
 #include "net.h"
 #include "netbase.h"
-#include "rpcserver.h"
-#include "util.h"
+#include "rpc/core/rpcserver.h"
+#include "commons/util.h"
 
 #include "../wallet/wallet.h"
 #include "../wallet/walletdb.h"
@@ -26,25 +26,54 @@ using namespace boost;
 using namespace boost::assign;
 using namespace json_spirit;
 
-static  bool GetKeyId(string const &addr,CKeyID &KeyId) {
-    if (!CRegID::GetKeyID(addr, KeyId)) {
-        KeyId=CKeyID(addr);
-        if (KeyId.IsEmpty())
-        return false;
+static bool GetKeyId(string const &addr, CKeyID &keyid) {
+    if (!CRegID::GetKeyId(addr, keyid)) {
+        keyid = CKeyID(addr);
+        if (keyid.IsEmpty())
+            return false;
     }
+
     return true;
 };
 
-Value getbalance(const Array& params, bool fHelp)
-{
+Value getcoinunitinfo(const Array& params, bool fHelp){
+    if (fHelp || params.size() > 1) {
+            string msg = "getcoinunitinfo\n"
+                    "\nArguments:\n"
+                     "\nExamples:\n"
+                    + HelpExampleCli("getcoinunitinfo", "")
+                    + "\nAs json rpc call\n"
+                    + HelpExampleRpc("getcoinunitinfo", "");
+            throw runtime_error(msg);
+    }
+
+    typedef std::function<bool(std::pair<std::string, uint64_t>, std::pair<std::string, uint64_t>)> Comparator;
+	Comparator compFunctor =
+			[](std::pair<std::string, uint64_t> elem1 ,std::pair<std::string, uint64_t> elem2)
+			{
+				return elem1.second < elem2.second;
+			};
+
+	// Declaring a set that will store the pairs using above comparision logic
+	std::set<std::pair<std::string, uint64_t>, Comparator> setOfUnits(
+			CoinUnitTypeTable.begin(), CoinUnitTypeTable.end(), compFunctor);
+
+	Object obj;
+    for (auto& it: setOfUnits) {
+        obj.push_back(Pair(it.first, it.second));
+    }
+    return obj;
+}
+
+Value getbalance(const Array& params, bool fHelp) {
     int size = params.size();
     if (fHelp || params.size() > 2) {
             string msg = "getbalance ( \"address\" minconf )\n"
                     "\nIf account is not specified, returns the server's total available balance.\n"
                     "If account is specified (DEPRECATED), returns the balance in the account.\n"
                     "\nArguments:\n"
-                     "1. \"address\"      (string, optional) DEPRECATED. The selected account or \"*\" for entire wallet.\n"
-                     "2.  minconf         (numeric, optional, default=1) Only include transactions confirmed\n"
+                     "1. \"address\"        (string, optional) DEPRECATED. The selected account or \"*\" for entire wallet.\n"
+                     "2. \"minconf\"        (numeric, optional, default=1) Only include transactions confirmed.\n"
                      "\nExamples:\n"
                     + HelpExampleCli("getbalance", "de3nGsPR6i9qpQTNnpC9ASMpFKbKzzFLYF 0")
                     + "\nAs json rpc call\n"
@@ -53,27 +82,26 @@ Value getbalance(const Array& params, bool fHelp)
     }
     Object obj;
     if (size == 0) {
-        obj.push_back(Pair("balance", ValueFromAmount(pwalletMain->GetRawBalance())));
+        obj.push_back(Pair("balance", ValueFromAmount(pWalletMain->GetFreeBcoins())));
         return obj;
     } else if (size == 1) {
         string addr = params[0].get_str();
         if (addr == "*") {
-            obj.push_back(Pair("balance", ValueFromAmount(pwalletMain->GetRawBalance())));
+            obj.push_back(Pair("balance", ValueFromAmount(pWalletMain->GetFreeBcoins())));
             return obj;
         } else {
             CKeyID keyid;
             if (!GetKeyId(addr, keyid)) {
-                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid  address");
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Unregistered address");
             }
-            if (pwalletMain->HasKey(keyid)) {
+            if (pWalletMain->HaveKey(keyid)) {
                 CAccount account;
-                CAccountViewCache accView(*pAccountViewTip, true);
-                if (accView.GetAccount(CUserID(keyid), account)) {
-                    obj.push_back(Pair("balance", ValueFromAmount(account.GetRawBalance())));
+                if (pCdMan->pAccountCache->GetAccount(CUserID(keyid), account)) {
+                    obj.push_back(Pair("balance", ValueFromAmount(account.GetToken(SYMB::WICC).free_amount)));
                     return obj;
                 }
             } else {
-                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "address not inwallet");
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Address not in wallet");
             }
         }
     } else if (size == 2) {
@@ -81,70 +109,72 @@ Value getbalance(const Array& params, bool fHelp)
         int nConf = params[1].get_int();
         int nMaxConf = SysCfg().GetArg("-maxconf", 30);
         if(nConf > nMaxConf) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "parameter minconf exceed maxconfed");
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Parameter minconf exceed maxconf");
         }
         if (addr == "*") {
             if (0 != nConf) {
                 CBlockIndex *pBlockIndex = chainActive.Tip();
                 int64_t nValue(0);
                 while (nConf) {
-                    if (pwalletMain->mapInBlockTx.count(pBlockIndex->GetBlockHash()) > 0) {
-                        map<uint256, std::shared_ptr<CBaseTx> > mapTx = pwalletMain->mapInBlockTx[pBlockIndex->GetBlockHash()].mapAccountTx;
+                    if (pWalletMain->mapInBlockTx.count(pBlockIndex->GetBlockHash()) > 0) {
+                        map<uint256, std::shared_ptr<CBaseTx> > mapTx = pWalletMain->mapInBlockTx[pBlockIndex->GetBlockHash()].mapAccountTx;
                         for (auto &item : mapTx) {
-                            if (COMMON_TX == item.second->nTxType) {
-                                CCommonTx *pTx = (CCommonTx *)item.second.get();
+                            if (BCOIN_TRANSFER_TX == item.second->nTxType) {
+                                CBaseCoinTransferTx *pTx = (CBaseCoinTransferTx *)item.second.get();
                                 CKeyID srcKeyId, desKeyId;
-                                pAccountViewTip->GetKeyId(pTx->srcRegId, srcKeyId);
-                                pAccountViewTip->GetKeyId(pTx->desUserId, desKeyId);
-                                if (!pwalletMain->HasKey(srcKeyId) && pwalletMain->HasKey(desKeyId)) {
-                                    nValue = pTx->llValues;
+                                pCdMan->pAccountCache->GetKeyId(pTx->txUid, srcKeyId);
+                                pCdMan->pAccountCache->GetKeyId(pTx->toUid, desKeyId);
+                                if (!pWalletMain->HaveKey(srcKeyId) && pWalletMain->HaveKey(desKeyId)) {
+                                    nValue = pTx->coin_amount;
                                 }
                             }
+                            // TODO: BCOIN_TRANSFER_MTX
                         }
                     }
                     pBlockIndex = pBlockIndex->pprev;
                     --nConf;
                 }
-                obj.push_back(Pair("balance", ValueFromAmount(pwalletMain->GetRawBalance() - nValue)));
+                obj.push_back(Pair("balance", ValueFromAmount(pWalletMain->GetFreeBcoins() - nValue)));
                 return obj;
             } else {
-                obj.push_back(Pair("balance", ValueFromAmount(pwalletMain->GetRawBalance(false))));
+                obj.push_back(Pair("balance", ValueFromAmount(pWalletMain->GetFreeBcoins(false))));
                 return obj;
             }
         } else {
             CKeyID keyid;
             if (!GetKeyId(addr, keyid)) {
-                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid  address");
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Unregistered address");
             }
-            if (pwalletMain->HasKey(keyid)) {
+            if (pWalletMain->HaveKey(keyid)) {
                 if (0 != nConf) {
                     CBlockIndex *pBlockIndex = chainActive.Tip();
                     int64_t nValue(0);
                     while (nConf) {
-                        if (pwalletMain->mapInBlockTx.count(pBlockIndex->GetBlockHash()) > 0) {
-                            map<uint256, std::shared_ptr<CBaseTx> > mapTx = pwalletMain->mapInBlockTx[pBlockIndex->GetBlockHash()].mapAccountTx;
+                        if (pWalletMain->mapInBlockTx.count(pBlockIndex->GetBlockHash()) > 0) {
+                            map<uint256, std::shared_ptr<CBaseTx> > mapTx = pWalletMain->mapInBlockTx[pBlockIndex->GetBlockHash()].mapAccountTx;
                             for (auto &item : mapTx) {
-                                if (COMMON_TX == item.second->nTxType) {
-                                    CCommonTx *pTx = (CCommonTx *)item.second.get();
+                                if (BCOIN_TRANSFER_TX == item.second->nTxType) {
+                                    CBaseCoinTransferTx *pTx = (CBaseCoinTransferTx *)item.second.get();
                                     CKeyID srcKeyId, desKeyId;
-                                    pAccountViewTip->GetKeyId(pTx->desUserId, desKeyId);
+                                    pCdMan->pAccountCache->GetKeyId(pTx->toUid, desKeyId);
                                     if (keyid == desKeyId) {
-                                        nValue = pTx->llValues;
+                                        nValue = pTx->coin_amount;
                                     }
                                 }
+                                // TODO: BCOIN_TRANSFER_MTX
                             }
                         }
                         pBlockIndex = pBlockIndex->pprev;
                         --nConf;
                     }
-                    obj.push_back(Pair("balance", ValueFromAmount(pAccountViewTip->GetRawBalance(keyid) - nValue)));
+                    obj.push_back(Pair("balance", ValueFromAmount(pCdMan->pAccountCache->GetAccountFreeAmount(keyid, SYMB::WICC) - nValue)));
                     return obj;
                 } else {
-                    obj.push_back(Pair("balance", ValueFromAmount(mempool.pAccountViewCache->GetRawBalance(keyid))));
+                    obj.push_back(Pair("balance", ValueFromAmount(mempool.cw->accountCache.GetAccountFreeAmount(keyid, SYMB::WICC))));
                     return obj;
                 }
             } else {
-                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "address not inwallet");
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Address not in wallet");
             }
         }
     }
@@ -191,7 +221,7 @@ Value getinfo(const Array& params, bool fHelp)
             + HelpExampleRpc("getinfo", "")
         );
 
-    proxyType proxy;
+    ProxyType proxy;
     GetProxy(NET_IPV4, proxy);
     static const string fullVersion = strprintf("%s (%s)", FormatFullVersion().c_str(), CLIENT_DATE.c_str());
     static const string netType[] = {"MAIN_NET", "TEST_NET", "REGTEST_NET"};
@@ -201,9 +231,9 @@ Value getinfo(const Array& params, bool fHelp)
     obj.push_back(Pair("fullversion",       fullVersion));
     obj.push_back(Pair("protocolversion",   PROTOCOL_VERSION));
 
-    if (pwalletMain) {
-        obj.push_back(Pair("walletversion", pwalletMain->GetVersion()));
-        obj.push_back(Pair("balance",       ValueFromAmount(pwalletMain->GetRawBalance())));
+    if (pWalletMain) {
+        obj.push_back(Pair("walletversion", pWalletMain->GetVersion()));
+        obj.push_back(Pair("balance",       ValueFromAmount(pWalletMain->GetFreeBcoins())));
     }
 
     obj.push_back(Pair("timeoffset",        GetTimeOffset()));
@@ -211,42 +241,25 @@ Value getinfo(const Array& params, bool fHelp)
     obj.push_back(Pair("nettype",           netType[SysCfg().NetworkID()]));
     obj.push_back(Pair("genblock",          SysCfg().GetArg("-genblock", 0)));
 
-    if (pwalletMain && pwalletMain->IsEncrypted())
+    if (pWalletMain && pWalletMain->IsEncrypted())
         obj.push_back(Pair("unlockeduntil", nWalletUnlockTime));
 
     obj.push_back(Pair("paytxfee",          ValueFromAmount(SysCfg().GetTxFee())));
     obj.push_back(Pair("relayfee",          ValueFromAmount(CBaseTx::nMinRelayTxFee)));
-    obj.push_back(Pair("fuelrate",          chainActive.Tip()->nFuelRate));
+    obj.push_back(Pair("fuelrate",          (int32_t)chainActive.Tip()->nFuelRate));
     obj.push_back(Pair("fuel",              chainActive.Tip()->nFuel));
     obj.push_back(Pair("confdir",           GetConfigFile().string().c_str()));
     obj.push_back(Pair("datadir",           GetDataDir().string().c_str()));
-    obj.push_back(Pair("tipblocktime",      (int)chainActive.Tip()->nTime));
+    obj.push_back(Pair("tipblocktime",      (int32_t)chainActive.Tip()->nTime));
     obj.push_back(Pair("tipblockhash",      chainActive.Tip()->GetBlockHash().ToString()));
     obj.push_back(Pair("syncblockheight",   nSyncTipHeight));
     obj.push_back(Pair("tipblockheight",    chainActive.Height()));
-    obj.push_back(Pair("connections",       vNodes.size()));
+    obj.push_back(Pair("blockinterval",     (int32_t)::GetBlockInterval(chainActive.Height())));
+    obj.push_back(Pair("connections",       (int32_t)vNodes.size()));
     obj.push_back(Pair("errors",            GetWarnings("statusbar")));
 
     return obj;
 }
-
-class DescribeAddressVisitor : public boost::static_visitor<Object>
-{
-public:
-    Object operator()(const CNoDestination &dest) const { return Object(); }
-
-    Object operator()(const CKeyID &keyID) const {
-        Object obj;
-        CPubKey vchPubKey;
-        pwalletMain->GetPubKey(keyID, vchPubKey);
-        obj.push_back(Pair("isscript", false));
-        obj.push_back(Pair("pubkey", HexStr(vchPubKey)));
-        obj.push_back(Pair("iscompressed", vchPubKey.IsCompressed()));
-        return obj;
-    }
-
-
-};
 
 Value verifymessage(const Array& params, bool fHelp)
 {
@@ -275,8 +288,8 @@ Value verifymessage(const Array& params, bool fHelp)
     string strSign     = params[1].get_str();
     string strMessage  = params[2].get_str();
 
-    CKeyID keyID;
-    if (!GetKeyId(strAddress,keyID))
+    CKeyID keyId;
+    if (!GetKeyId(strAddress,keyId))
         throw JSONRPCError(RPC_TYPE_ERROR, "Address does not refer to key");
 
     bool fInvalid = false;
@@ -293,5 +306,5 @@ Value verifymessage(const Array& params, bool fHelp)
     if (!pubkey.RecoverCompact(ss.GetHash(), vchSig))
         return false;
 
-    return (pubkey.GetKeyID() == keyID);
+    return (pubkey.GetKeyId() == keyId);
 }
