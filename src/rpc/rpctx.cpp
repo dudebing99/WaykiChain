@@ -562,7 +562,6 @@ Value getaccountinfo(const Array& params, bool fHelp) {
 
     userId = keyid;
     Object obj;
-    bool found = false;
 
     CAccount account;
     if (pCdMan->pAccountCache->GetAccount(userId, account)) {
@@ -580,8 +579,6 @@ Value getaccountinfo(const Array& params, bool fHelp) {
         }
         obj = account.ToJsonObj();
         obj.push_back(Pair("position", "inblock"));
-
-        found = true;
     } else {  // unregistered keyid
         CPubKey pubKey;
         CPubKey minerPubKey;
@@ -594,27 +591,7 @@ Value getaccountinfo(const Array& params, bool fHelp) {
             }
             obj = account.ToJsonObj();
             obj.push_back(Pair("position", "inwallet"));
-
-            found = true;
         }
-    }
-
-    if (found) {
-        int32_t height       = chainActive.Height();
-        uint64_t slideWindow = 0;
-        pCdMan->pSysParamCache->GetParam(SysParamType::MEDIAN_PRICE_SLIDE_WINDOW_BLOCKCOUNT, slideWindow);
-        // TODO: multi stable coin
-        uint64_t bcoinMedianPrice =
-            pCdMan->pPpCache->GetMedianPrice(height, slideWindow, CoinPricePair(SYMB::WICC, SYMB::USD));
-        Array cdps;
-        vector<CUserCDP> userCdps;
-        if (pCdMan->pCdpCache->GetCDPList(account.regid, userCdps)) {
-            for (auto& cdp : userCdps) {
-                cdps.push_back(cdp.ToJson(bcoinMedianPrice));
-            }
-        }
-
-        obj.push_back(Pair("cdp_list", cdps));
     }
 
     return obj;
@@ -984,9 +961,7 @@ Value signtxraw(const Array& params, bool fHelp) {
     Object obj;
 
     switch (pBaseTx.get()->nTxType) {
-        case BLOCK_REWARD_TX:
-        case UCOIN_REWARD_TX:
-        case UCOIN_BLOCK_REWARD_TX: {
+        case BLOCK_REWARD_TX: {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Reward transation is forbidden");
         }
         case UCOIN_TRANSFER_MTX: {

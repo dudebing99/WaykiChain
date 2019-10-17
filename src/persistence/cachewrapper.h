@@ -9,13 +9,9 @@
 #include "accountdb.h"
 #include "assetdb.h"
 #include "blockdb.h"
-#include "cdpdb.h"
 #include "commons/uint256.h"
 #include "contractdb.h"
 #include "delegatedb.h"
-#include "dexdb.h"
-#include "pricefeeddb.h"
-#include "sysparamdb.h"
 #include "txdb.h"
 #include "txreceiptdb.h"
 
@@ -23,19 +19,14 @@ class CCacheDBManager;
 class CBlockUndo;
 class CCacheWrapper {
 public:
-    CSysParamDBCache    sysParamCache;
     CBlockDBCache       blockCache;
     CAccountDBCache     accountCache;
     CAssetDBCache       assetCache;
     CContractDBCache    contractCache;
     CDelegateDBCache    delegateCache;
-    CCdpDBCache         cdpCache;
-    CClosedCdpDBCache   closedCdpCache;
-    CDexDBCache         dexCache;
     CTxReceiptDBCache   txReceiptCache;
 
     CTxMemCache         txCache;
-    CPricePointMemCache ppCache;
 
     CTxUndo             txUndo;
 public:
@@ -43,18 +34,13 @@ public:
 public:
     CCacheWrapper();
 
-    CCacheWrapper(CSysParamDBCache* pSysParamCacheIn,
-                  CBlockDBCache*  pBlockCacheIn,
+    CCacheWrapper(CBlockDBCache*  pBlockCacheIn,
                   CAccountDBCache* pAccountCacheIn,
                   CAssetDBCache* pAssetCache,
                   CContractDBCache* pContractCacheIn,
                   CDelegateDBCache* pDelegateCacheIn,
-                  CCdpDBCache* pCdpCacheIn,
-                  CClosedCdpDBCache* pClosedCdpCacheIn,
-                  CDexDBCache* pDexCacheIn,
                   CTxReceiptDBCache* pReceiptCacheIn,
-                  CTxMemCache *pTxCacheIn,
-                  CPricePointMemCache *pPpCacheIn);
+                  CTxMemCache *pTxCacheIn);
     CCacheWrapper(CCacheWrapper* cwIn);
     CCacheWrapper(CCacheDBManager* pCdMan);
 

@@ -35,10 +35,6 @@ public:
     string GetDelegateSignature(const NET_TYPE type) const;
     const vector<string> GetDelegatePubKey(const NET_TYPE type) const;
     const uint256 GetMerkleRootHash() const;
-
-    const string GetDexMatchServicePubKey(const NET_TYPE type) const;
-    const string GetInitFcoinOwnerPubKey(const NET_TYPE type) const;
-
     vector<uint32_t> GetSeedNodeIP() const;
     uint8_t* GetMagicNumber(const NET_TYPE type) const;
     vector<uint8_t> GetAddressPrefix(const NET_TYPE type, const Base58Type BaseType) const;
@@ -48,9 +44,6 @@ public:
     uint32_t GetTotalDelegateNum() const;
     uint32_t GetMaxVoteCandidateNum() const;
     uint64_t GetCoinInitValue() const { return InitialCoin; };
-	uint32_t GetFeatureForkHeight(const NET_TYPE type) const;
-    uint32_t GetStableCoinGenesisHeight(const NET_TYPE type) const;
-    const vector<string> GetStableCoinGenesisTxid(const NET_TYPE type) const;
 
 private:
     static string COIN_NAME; /* basecoin name */
@@ -113,16 +106,10 @@ private:
 
     /* Max Number of Delegate Candidate to Vote for by a single account */
     static uint32_t MaxVoteCandidateNum;
-
-    /* Block height to enable feature fork version */
-	static uint32_t nFeatureForkHeight[3];
-
-    /* Block height for stable coin genesis */
-    static uint32_t nStableScoinGenesisHeight[3];
 };
 
 inline FeatureForkVersionEnum GetFeatureForkVersion(const int32_t currBlockHeight) {
-    if (currBlockHeight >= (int32_t)SysCfg().GetFeatureForkHeight())
+    if (currBlockHeight >= 0) // TODO: Kevin
         return MAJOR_VER_R2;
     else
         return MAJOR_VER_R1;
@@ -132,9 +119,7 @@ inline uint32_t GetBlockInterval(const int32_t currBlockHeight) {
     FeatureForkVersionEnum featureForkVersion = GetFeatureForkVersion(currBlockHeight);
     switch (featureForkVersion) {
         case MAJOR_VER_R1:
-            return SysCfg().GetBlockIntervalPreStableCoinRelease();
-        case MAJOR_VER_R2:
-            return SysCfg().GetBlockIntervalStableCoinRelease();
+            return SysCfg().GetBlockInterval();
         default:
             assert(false && "unknown feature fork version");
     }
@@ -158,7 +143,7 @@ inline uint32_t GetJumpHeightBySubsidy(const uint8_t targetSubsidyRate) {
 
     if (!initialized) {
         uint32_t jumpHeight        = 0;
-        uint32_t featureForkHeight = SysCfg().GetFeatureForkHeight();
+        uint32_t featureForkHeight = 0; // TODO: Kevin
         uint32_t yearHeightV1      = SysCfg().NetworkID() == REGTEST_NET ? 500 : 3153600;    // pre-stable coin release
         uint32_t yearHeightV2      = SysCfg().NetworkID() == REGTEST_NET ? 1500 : 10512000;  // stable coin release
         uint32_t actualJumpHeight  = yearHeightV1;

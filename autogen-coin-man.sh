@@ -10,7 +10,7 @@ ShowHelp() {
     echo
     echo "EXAMPLE:"
     echo
-    echo "  autogen-coin-man [coin|coin-debug|coin-test|coin-ptest]"
+    echo "  autogen-coin-man [coin|coin-debug]"
     echo "\033[0m"
 }
 
@@ -28,12 +28,6 @@ do
         ;;
         coin-debug)
         Modules="$Modules --with-daemon --enable-debug"
-        ;;
-        coin-test)
-        Modules="$Modules --enable-tests"
-        ;;
-        coin-ptest)
-        Modules="$Modules --enable-ptests"
         ;;
         *)
         echo "\033[40;31mERROR: Unsupported Module Name!\033[0m"

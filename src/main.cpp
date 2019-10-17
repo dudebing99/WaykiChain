@@ -320,8 +320,8 @@ bool AcceptToMemoryPool(CTxMemPool &pool, CValidationState &state, CBaseTx *pBas
                             REJECT_INVALID, "tx-already-in-mempool");
 
     // is it a miner reward tx or price median tx?
-    if (pBaseTx->IsBlockRewardTx() || pBaseTx->IsPriceMedianTx())
-        return state.Invalid(ERRORMSG("AcceptToMemoryPool() : txid: %s is a block reward or price median tx, not allowed to put into mempool",
+    if (pBaseTx->IsBlockRewardTx())
+        return state.Invalid(ERRORMSG("AcceptToMemoryPool() : txid: %s is a block reward tx, not allowed to put into mempool",
                             hash.GetHex()), REJECT_INVALID, "tx-coinbase-to-mempool");
 
     // Rather not work on nonstandard transactions (unless -testnet/-regtest)
@@ -856,30 +856,6 @@ bool DisconnectBlock(CBlock &block, CCacheWrapper &cw, CBlockIndex *pIndex, CVal
         }
     }
 
-    // Delete the disconnected block's pricefeed items from price point memory cache.
-    if (!cw.ppCache.DeleteBlockFromCache(block)) {
-        return state.Abort(_("DisconnectBlock() : failed to delete block from price point memory cache"));
-    }
-
-    // Load price points into price point memory cache.
-    // TODO: parameterize 11.
-    if (pIndex->height > 11) {
-        CBlockIndex *pReLoadBlockIndex = pIndex;
-        int32_t nCacheHeight           = 11;
-        while (pReLoadBlockIndex && nCacheHeight-- > 0) {
-            pReLoadBlockIndex = pReLoadBlockIndex->pprev;
-        }
-
-        CBlock reLoadblock;
-        if (!ReadBlockFromDisk(pReLoadBlockIndex, reLoadblock)) {
-            return state.Abort(_("DisconnectBlock() : failed to read block"));
-        }
-
-        if (!cw.ppCache.AddBlockToCache(reLoadblock)) {
-            return state.Abort(_("DisconnectBlock() : failed to add block into price point memory cache"));
-        }
-    }
-
     if (pfClean) {
         *pfClean = fClean;
         return true;
@@ -1029,101 +1005,6 @@ bool SaveTxIndex(const uint256 &txid, CCacheWrapper &cw, CValidationState &state
     return true;
 }
 
-// compute vote staking interest && revoke votes
-static bool ComputeVoteStakingInterestAndRevokeVotes(const int32_t currHeight, const uint32_t currBlockTime,
-                                                    CCacheWrapper &cw, CValidationState &state) {
-    // acquire votes list
-    map<string /* CRegID */, vector<CCandidateReceivedVote>> regId2ReceivedVotes;
-    if (!cw.delegateCache.GetVoterList(regId2ReceivedVotes)) {
-        return state.DoS(100, ERRORMSG("ComputeVoteStakingInterestAndRevokeVotes() : failed to get vote list"),
-                         REJECT_INVALID, "bad-get-vote-list");
-    }
-
-    // revoke votes if necessary
-    map<CRegID, vector<CCandidateVote>> regId2CandidateVotes;
-    for (auto &item : regId2ReceivedVotes) {
-        CRegID regId(UnsignedCharArray(item.first.begin(), item.first.end()));
-        auto &candidateReceivedVotes = item.second;
-        vector<CCandidateVote> candidateVotes;
-        assert(!candidateReceivedVotes.empty());
-        // If the voter only votes to one candidate, not bother to revoke votes.
-        if (candidateReceivedVotes.size() == 1) {
-            regId2CandidateVotes.emplace(regId, candidateVotes /* empty */);
-            continue;
-        }
-
-        // If the voter votes to more than one candidates, need to revoke votes from the second
-        // candidates.
-        auto it = candidateReceivedVotes.begin();
-        ++it;  // skip the first item
-        for (; it < candidateReceivedVotes.end(); ++it) {
-            const auto &uid  = it->GetCandidateUid();
-            const auto votes = it->GetVotedBcoins();
-            candidateVotes.emplace_back(VoteType::MINUS_BCOIN, uid, votes);  // revoke votes
-        }
-
-        regId2CandidateVotes.emplace(regId, candidateVotes);
-    }
-
-    // compute vote staking interest
-    for (const auto &item : regId2CandidateVotes) {
-        const auto &regId          = item.first;
-        const auto &candidateVotes = item.second;
-
-        vector<CCandidateReceivedVote> candidateVotesInOut;
-        cw.delegateCache.GetCandidateVotes(regId, candidateVotesInOut);
-        CAccount account;
-        cw.accountCache.GetAccount(regId, account);
-        vector<CReceipt> receipts;
-        if (!account.ProcessCandidateVotes(candidateVotes, candidateVotesInOut, currHeight, currBlockTime,
-                                           cw.accountCache, receipts)) {
-            return state.DoS(100, ERRORMSG("ComputeVoteStakingInterestAndRevokeVotes() : operate candidate votes failed, regId=%s",
-                            regId.ToString()), UPDATE_ACCOUNT_FAIL, "operate-candidate-votes-failed");
-        }
-        if (!cw.delegateCache.SetCandidateVotes(regId, candidateVotesInOut)) {
-            return state.DoS(100, ERRORMSG("ComputeVoteStakingInterestAndRevokeVotes() : write candidate votes failed, regId=%s",
-                            regId.ToString()), OPERATE_CANDIDATE_VOTES_FAIL, "write-candidate-votes-failed");
-        }
-
-        if (!cw.accountCache.SaveAccount(account)) {
-            return state.DoS(100, ERRORMSG("ComputeVoteStakingInterestAndRevokeVotes() : save account id %s info error",
-                            account.regid.ToString()), UPDATE_ACCOUNT_FAIL, "bad-save-accountdb");
-        }
-
-        for (const auto &vote : candidateVotes) {
-            CAccount delegate;
-            const CUserID &delegateUId = vote.GetCandidateUid();
-            if (!cw.accountCache.GetAccount(delegateUId, delegate)) {
-                return state.DoS(100, ERRORMSG("ComputeVoteStakingInterestAndRevokeVotes() : read KeyId(%s) account info error",
-                                delegateUId.ToString()), UPDATE_ACCOUNT_FAIL, "bad-read-accountdb");
-            }
-            uint64_t oldVotes = delegate.received_votes;
-            if (!delegate.StakeVoteBcoins(VoteType(vote.GetCandidateVoteType()), vote.GetVotedBcoins())) {
-                return state.DoS(100, ERRORMSG("ComputeVoteStakingInterestAndRevokeVotes() : operate delegate address %s vote fund error",
-                                delegateUId.ToString()), UPDATE_ACCOUNT_FAIL, "operate-vote-error");
-            }
-
-            // Votes: set the new value and erase the old value
-            if (!cw.delegateCache.SetDelegateVotes(delegate.regid, delegate.received_votes)) {
-                return state.DoS(100, ERRORMSG("ComputeVoteStakingInterestAndRevokeVotes() : save account id %s vote info error",
-                                delegate.regid.ToString()), UPDATE_ACCOUNT_FAIL, "bad-save-delegatedb");
-            }
-
-            if (!cw.delegateCache.EraseDelegateVotes(delegate.regid, oldVotes)) {
-                return state.DoS(100, ERRORMSG("ComputeVoteStakingInterestAndRevokeVotes() : erase account id %s vote info error",
-                                delegate.regid.ToString()), UPDATE_ACCOUNT_FAIL, "bad-save-delegatedb");
-            }
-
-            if (!cw.accountCache.SaveAccount(delegate)) {
-                return state.DoS(100, ERRORMSG("ComputeVoteStakingInterestAndRevokeVotes() : save account id %s info error",
-                                account.regid.ToString()), UPDATE_ACCOUNT_FAIL, "bad-save-accountdb");
-            }
-        }
-    }
-
-    return true;
-}
-
 bool ConnectBlock(CBlock &block, CCacheWrapper &cw, CBlockIndex *pIndex, CValidationState &state, bool fJustCheck) {
     AssertLockHeld(cs_main);
 
@@ -1147,23 +1028,6 @@ bool ConnectBlock(CBlock &block, CCacheWrapper &cw, CBlockIndex *pIndex, CValida
     // Special case for the genesis block, skipping connection of its transactions.
     if (isGensisBlock) {
         return ProcessGenesisBlock(block, cw, pIndex);
-    }
-
-    // In stable coin genesis, need to verify txid for every transaction in block.
-    if (block.GetHeight() == SysCfg().GetStableCoinGenesisHeight()) {
-        assert(block.vptx.size() == 4);
-
-        vector<string> txids = IniCfg().GetStableCoinGenesisTxid(SysCfg().NetworkID());
-        assert(txids.size() == 3);
-        for (int32_t index = 0; index < 3; ++ index) {
-            LogPrint("INFO", "stable coin genesis block, txid actual: %s, should be: %s, in detail: %s\n",
-                     block.vptx[index + 1]->GetHash().GetHex(), txids[index],
-                     block.vptx[index + 1]->ToString(cw.accountCache));
-            assert(block.vptx[index + 1]->nTxType == UCOIN_REWARD_TX);
-            if (SysCfg().NetworkID() == MAIN_NET) {
-                assert(block.vptx[index + 1]->GetHash() == uint256S(txids[index]));
-            }
-        }
     }
 
     if (!VerifyRewardTx(&block, cw, false))
@@ -1206,8 +1070,6 @@ bool ConnectBlock(CBlock &block, CCacheWrapper &cw, CBlockIndex *pIndex, CValida
             uint32_t prevBlockTime = pIndex->pprev != nullptr ? pIndex->pprev->GetBlockTime() : pIndex->GetBlockTime();
             CTxExecuteContext context(pIndex->height, index, fuelRate, pIndex->nTime, prevBlockTime, &cw, &state);
             if (!pBaseTx->ExecuteTx(context)) {
-                pCdMan->pLogCache->SetExecuteFail(pIndex->height, pBaseTx->GetHash(), state.GetRejectCode(),
-                                                  state.GetRejectReason());
                 cw.DisableTxUndoLog();
                 return state.DoS(100, ERRORMSG("ConnectBlock() : txid=%s execute failed, in detail: %s",
                     pBaseTx->GetHash().GetHex(), pBaseTx->ToString(cw.accountCache)), REJECT_INVALID, "tx-execute-failed");
@@ -1251,30 +1113,10 @@ bool ConnectBlock(CBlock &block, CCacheWrapper &cw, CBlockIndex *pIndex, CValida
     }
 
     // Verify reward values
-    if (block.vptx[0]->nTxType == BLOCK_REWARD_TX) {
-        auto pRewardTx = (CBlockRewardTx *)block.vptx[0].get();
-        if (pRewardTx->reward_fees != rewards.at(SYMB::WICC)) {
-            return state.DoS(100, ERRORMSG("ConnectBlock() : invalid coinbase reward amount"), REJECT_INVALID,
-                             "bad-reward-amount");
-        }
-    } else if (block.vptx[0]->nTxType == UCOIN_BLOCK_REWARD_TX) {
-        auto pRewardTx = (CUCoinBlockRewardTx *)block.vptx[0].get();
-
-        if (SysCfg().NetworkID() == TEST_NET && block.GetHeight() < 200000) {
-            // TODO: remove me if reset testnet.
-        } else {
-            if (pRewardTx->reward_fees != rewards) {
-                return state.DoS(100, ERRORMSG("ConnectBlock() : invalid coinbase reward amount"), REJECT_INVALID,
-                                 "bad-reward-amount");
-            }
-        }
-
-        // Verify profits
-        uint64_t profits = delegateAccount.ComputeBlockInflateInterest(block.GetHeight());
-        if (pRewardTx->inflated_bcoins != profits) {
-            return state.DoS(100, ERRORMSG("ConnectBlock() : invalid coinbase profits amount(actual=%d vs valid=%d)",
-                             pRewardTx->inflated_bcoins, profits), REJECT_INVALID, "bad-reward-amount");
-        }
+    auto pRewardTx = (CBlockRewardTx *)block.vptx[0].get();
+    if (pRewardTx->reward_fees != rewards.at(SYMB::WICC)) {
+        return state.DoS(100, ERRORMSG("ConnectBlock() : invalid coinbase reward amount"), REJECT_INVALID,
+                            "bad-reward-amount");
     }
 
     // Execute block reward transaction
@@ -1282,15 +1124,8 @@ bool ConnectBlock(CBlock &block, CCacheWrapper &cw, CBlockIndex *pIndex, CValida
     CTxExecuteContext context(pIndex->height, 0, pIndex->nFuelRate, pIndex->nTime, prevBlockTime, &cw, &state);
     cw.EnableTxUndoLog(block.vptx[0]->GetHash());
     if (!block.vptx[0]->ExecuteTx(context)) {
-        pCdMan->pLogCache->SetExecuteFail(pIndex->height, block.vptx[0]->GetHash(), state.GetRejectCode(),
-                                          state.GetRejectReason());
         cw.DisableTxUndoLog();
         return ERRORMSG("ConnectBlock() : failed to execute reward transaction");
-    }
-
-    if (pIndex->height + 1 == (int32_t)SysCfg().GetFeatureForkHeight() &&
-        !ComputeVoteStakingInterestAndRevokeVotes(pIndex->height, pIndex->nTime, cw, state)) {
-        return false;
     }
 
     if (!SaveTxIndex(block.vptx[0]->GetHash(), cw, state, rewardPos)) {
@@ -1326,8 +1161,6 @@ bool ConnectBlock(CBlock &block, CCacheWrapper &cw, CBlockIndex *pIndex, CValida
             CTxExecuteContext context(pIndex->height, -1, pIndex->nFuelRate, pIndex->nTime, prevBlockTime, &cw, &state);
             cw.EnableTxUndoLog(matureBlock.vptx[0]->GetHash());
             if (!matureBlock.vptx[0]->ExecuteTx(context)) {
-                pCdMan->pLogCache->SetExecuteFail(pIndex->height, matureBlock.vptx[0]->GetHash(), state.GetRejectCode(),
-                                                  state.GetRejectReason());
                 cw.DisableTxUndoLog();
                 return ERRORMSG("ConnectBlock() : execute mature block reward tx error!");
             }
@@ -1386,27 +1219,6 @@ bool ConnectBlock(CBlock &block, CCacheWrapper &cw, CBlockIndex *pIndex, CValida
         }
     }
 
-    // Attention: should NOT to call AddBlockToCache() for price point memory cache, as everything
-    // is ready when executing transactions.
-
-    // TODO: parameterize 11.
-    if (pIndex->height > 11) {
-        CBlockIndex *pDeleteBlockIndex = pIndex;
-        int32_t nCacheHeight           = 11;
-        while (pDeleteBlockIndex && nCacheHeight-- > 0) {
-            pDeleteBlockIndex = pDeleteBlockIndex->pprev;
-        }
-
-        CBlock deleteBlock;
-        if (!ReadBlockFromDisk(pDeleteBlockIndex, deleteBlock)) {
-            return state.Abort(_("ConnectBlock() : failed to read block"));
-        }
-
-        if (!cw.ppCache.DeleteBlockFromCache(deleteBlock)) {
-            return state.Abort(_("ConnectBlock() : failed delete block from price point memory cache"));
-        }
-    }
-
     // Set best block to current account cache.
     cw.blockCache.SetBestBlock(pIndex->GetBlockHash());
 
@@ -1417,16 +1229,11 @@ bool ConnectBlock(CBlock &block, CCacheWrapper &cw, CBlockIndex *pIndex, CValida
 bool static WriteChainState(CValidationState &state) {
     static int64_t nLastWrite = 0;
     uint32_t cacheSize        =
-        pCdMan->pSysParamCache->GetCacheSize() +
         pCdMan->pAccountCache->GetCacheSize() +
         pCdMan->pAssetCache->GetCacheSize() +
         pCdMan->pContractCache->GetCacheSize() +
         pCdMan->pDelegateCache->GetCacheSize() +
-        pCdMan->pCdpCache->GetCacheSize() +
-        pCdMan->pClosedCdpCache->GetCacheSize() +
-        pCdMan->pDexCache->GetCacheSize() +
         pCdMan->pBlockCache->GetCacheSize() +
-        pCdMan->pLogCache->GetCacheSize() +
         pCdMan->pReceiptCache->GetCacheSize();
 
     if (!IsInitialBlockDownload() || cacheSize > SysCfg().GetCacheSize() ||
@@ -1505,30 +1312,22 @@ bool static DisconnectTip(CValidationState &state) {
 
         // Attention: need to reload top N delegates.
         pCdMan->pDelegateCache->LoadTopDelegateList();
-
-        // Attention: need to reset the lastest block price median
-        CBlockIndex *pPreBlockIndex = pIndexDelete->pprev;
-        CBlock preBlock;
-        if (pPreBlockIndex) {
-            if (!ReadBlockFromDisk(pPreBlockIndex, preBlock))
-                return ERRORMSG("DisconnectTip() : failed to read block [%d]: %s", pPreBlockIndex->height,
-                                pPreBlockIndex->GetBlockHash().ToString());
-
-            pCdMan->pPpCache->SetLatestBlockMedianPricePoints(preBlock.GetBlockMedianPrice());
-        }
     }
+
     if (SysCfg().IsBenchmark())
         LogPrint("INFO", "- Disconnect: %.2fms\n", (GetTimeMicros() - nStart) * 0.001);
     // Write the chain state to disk, if necessary.
     if (!WriteChainState(state))
         return false;
+
     // Update chainActive and related variables.
     UpdateTip(pIndexDelete->pprev, block);
+
     // Resurrect mempool transactions from the disconnected block.
     for (const auto &pTx : block.vptx) {
         list<std::shared_ptr<CBaseTx> > removed;
         CValidationState stateDummy;
-        if (!pTx->IsBlockRewardTx() && !pTx->IsPriceMedianTx()) {
+        if (!pTx->IsBlockRewardTx()) {
             if (!AcceptToMemoryPool(mempool, stateDummy, pTx.get(), false)) {
                 mempool.Remove(pTx.get(), removed, true);
             }
@@ -1831,7 +1630,7 @@ bool ProcessForkedChain(const CBlock &block, CBlockIndex *pPreBlockIndex, CValid
         pPreBlockIndex = pPreBlockIndex->pprev;
 
         // FIXME: enable it to avoid forked chain attack.
-        if (chainActive.Height() - pPreBlockIndex->height > SysCfg().GetMaxForkHeight(block.GetHeight()))
+        if (chainActive.Height() - pPreBlockIndex->height > 100 /* TODO: Kevin */)
             return state.DoS(100, ERRORMSG(
                 "ProcessForkedChain() : block at fork chain too earlier than tip block hash=%s block height=%d\n",
                 block.GetHash().GetHex(), block.GetHeight()));
@@ -1884,35 +1683,6 @@ bool ProcessForkedChain(const CBlock &block, CBlockIndex *pPreBlockIndex, CValid
     int32_t forkChainBestBlockHeight = mapBlockIndex[forkChainBestBlockHash]->height;
     LogPrint("INFO", "ProcessForkedChain() : fork chain's best block [%d]: %s\n", forkChainBestBlockHeight,
              forkChainBestBlockHash.GetHex());
-
-    {
-        // Set base to null and rebuild memory cache.
-        spCW->ppCache.Reset();
-
-        CBlockIndex *pBlockIndex = mapBlockIndex[forkChainBestBlockHash];
-        CBlock block;
-        if (pBlockIndex) {
-            if (!ReadBlockFromDisk(pBlockIndex, block))
-                return ERRORMSG("ProcessForkedChain() : failed to read block [%d]: %s", pBlockIndex->height,
-                                pBlockIndex->GetBlockHash().ToString());
-
-            spCW->ppCache.SetLatestBlockMedianPricePoints(block.GetBlockMedianPrice());
-        }
-
-        // TODO: parameterize 11
-        int32_t cacheHeight = 11;
-        while (pBlockIndex && cacheHeight-- > 0) {
-            if (!ReadBlockFromDisk(pBlockIndex, block))
-                return ERRORMSG("ProcessForkedChain() : failed to read block [%d]: %s", pBlockIndex->height,
-                                pBlockIndex->GetBlockHash().ToString());
-
-            if (!spCW->ppCache.AddBlockToCache(block))
-                return ERRORMSG("ProcessForkedChain() : failed to add block [%d]: %s to price point memory cache",
-                                pBlockIndex->height, pBlockIndex->GetBlockHash().ToString());
-
-            pBlockIndex = pBlockIndex->pprev;
-        }
-    }
 
     if (!vPreBlocks.empty()) {
         auto spNewForkCW = std::make_shared<CCacheWrapper>(spCW.get());
@@ -1977,7 +1747,6 @@ bool CheckBlock(const CBlock &block, CValidationState &state, CCacheWrapper &cw,
     // Check for duplicate txids. This is caught by ConnectInputs(),
     // but catching it earlier avoids a potential DoS attack:
     set<uint256> uniqueTx;
-    uint32_t priceMedianTxCount = 0;
     for (uint32_t i = 0; i < block.vptx.size(); i++) {
         uniqueTx.insert(block.GetTxid(i));
 
@@ -1990,17 +1759,7 @@ bool CheckBlock(const CBlock &block, CValidationState &state, CCacheWrapper &cw,
             if (0 != i && block.vptx[i]->IsBlockRewardTx())
                 return state.DoS(100, ERRORMSG("CheckBlock() : more than one block reward tx"), REJECT_INVALID,
                                  "bad-block-reward-tx-multiple");
-
-            if (block.vptx[i]->IsPriceMedianTx()) {
-                ++ priceMedianTxCount;
-            }
         }
-    }
-
-    // In stable coin release, every block should have one price median tx only.
-    if (GetFeatureForkVersion(block.GetHeight()) == MAJOR_VER_R2 && priceMedianTxCount != 1) {
-        return state.DoS(100, ERRORMSG("CheckBlock() : price median tx number error"), REJECT_INVALID,
-                         "bad-price-median-tx-number");
     }
 
     if (uniqueTx.size() != block.vptx.size())
@@ -2904,23 +2663,8 @@ std::shared_ptr<CBaseTx> CreateNewEmptyTransaction(uint8_t txType) {
         case ASSET_UPDATE_TX:       return std::make_shared<CAssetUpdateTx>();
 
         case UCOIN_TRANSFER_TX:     return std::make_shared<CCoinTransferTx>();
-        case UCOIN_REWARD_TX:       return std::make_shared<CCoinRewardTx>();
-        case UCOIN_BLOCK_REWARD_TX: return std::make_shared<CUCoinBlockRewardTx>();
         case UCONTRACT_DEPLOY_TX:   return std::make_shared<CUniversalContractDeployTx>();
         case UCONTRACT_INVOKE_TX:   return std::make_shared<CUniversalContractInvokeTx>();
-        case PRICE_FEED_TX:         return std::make_shared<CPriceFeedTx>();
-        case PRICE_MEDIAN_TX:       return std::make_shared<CBlockPriceMedianTx>();
-
-        case CDP_STAKE_TX:          return std::make_shared<CCDPStakeTx>();
-        case CDP_REDEEM_TX:         return std::make_shared<CCDPRedeemTx>();
-        case CDP_LIQUIDATE_TX:      return std::make_shared<CCDPLiquidateTx>();
-
-        case DEX_TRADE_SETTLE_TX:     return std::make_shared<CDEXSettleTx>();
-        case DEX_CANCEL_ORDER_TX:     return std::make_shared<CDEXCancelOrderTx>();
-        case DEX_LIMIT_BUY_ORDER_TX:  return std::make_shared<CDEXBuyLimitOrderTx>();
-        case DEX_LIMIT_SELL_ORDER_TX: return std::make_shared<CDEXSellLimitOrderTx>();
-        case DEX_MARKET_BUY_ORDER_TX: return std::make_shared<CDEXBuyMarketOrderTx>();
-        case DEX_MARKET_SELL_ORDER_TX:return std::make_shared<CDEXSellMarketOrderTx>();
 
         default:
             ERRORMSG("CreateNewEmptyTransaction type error");

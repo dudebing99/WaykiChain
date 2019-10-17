@@ -126,9 +126,7 @@ public:
     // If the sender has no regid before, geneate a regid for the sender.
     bool GenerateRegID(CTxExecuteContext &context, CAccount &account);
 
-    bool IsBlockRewardTx() { return nTxType == BLOCK_REWARD_TX || nTxType == UCOIN_BLOCK_REWARD_TX; }
-    bool IsPriceMedianTx() { return nTxType == PRICE_MEDIAN_TX; }
-    bool IsPriceFeedTx() { return nTxType == PRICE_FEED_TX; }
+    bool IsBlockRewardTx() { return nTxType == BLOCK_REWARD_TX; }
 
 protected:
     bool CheckTxFeeSufficient(const TokenSymbol &feeSymbol, const uint64_t llFees, const int32_t height) const;

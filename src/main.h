@@ -31,24 +31,16 @@
 #include "persistence/blockdb.h"
 #include "persistence/cachewrapper.h"
 #include "persistence/delegatedb.h"
-#include "persistence/dexdb.h"
-#include "persistence/logdb.h"
-#include "persistence/pricefeeddb.h"
 #include "persistence/txdb.h"
 #include "sigcache.h"
 #include "tx/accountregtx.h"
-#include "tx/cointransfertx.h"
-#include "tx/blockpricemediantx.h"
 #include "tx/blockrewardtx.h"
-#include "tx/cdptx.h"
-#include "tx/coinrewardtx.h"
+#include "tx/cointransfertx.h"
 #include "tx/cointransfertx.h"
 #include "tx/contracttx.h"
 #include "tx/delegatetx.h"
-#include "tx/dextx.h"
 #include "tx/coinstaketx.h"
 #include "tx/mulsigtx.h"
-#include "tx/pricefeedtx.h"
 #include "tx/tx.h"
 #include "tx/txmempool.h"
 #include "tx/assettx.h"
@@ -82,7 +74,6 @@ class CTxUndo;
 class CValidationState;
 class CWalletInterface;
 class CTxMemCache;
-class CUserCDP;
 
 struct CNodeStateStats;
 
@@ -215,9 +206,6 @@ public:
 
 class CCacheDBManager {
 public:
-    CDBAccess           *pSysParamDb;
-    CSysParamDBCache    *pSysParamCache;
-
     CDBAccess           *pAccountDb;
     CAccountDBCache     *pAccountCache;
 
@@ -230,33 +218,17 @@ public:
     CDBAccess           *pDelegateDb;
     CDelegateDBCache    *pDelegateCache;
 
-    CDBAccess           *pCdpDb;
-    CCdpDBCache         *pCdpCache;
-
-    CDBAccess           *pClosedCdpDb;
-    CClosedCdpDBCache   *pClosedCdpCache;
-
-    CDBAccess           *pDexDb;
-    CDexDBCache         *pDexCache;
-
     CBlockIndexDB       *pBlockIndexDb;
     CDBAccess           *pBlockDb;
     CBlockDBCache       *pBlockCache;
-
-    CDBAccess           *pLogDb;
-    CLogDBCache         *pLogCache;
 
     CDBAccess           *pReceiptDb;
     CTxReceiptDBCache   *pReceiptCache;
 
     CTxMemCache         *pTxCache;
-    CPricePointMemCache *pPpCache;
 
 public:
     CCacheDBManager(bool fReIndex, bool fMemory) {
-        pSysParamDb     = new CDBAccess(DBNameType::SYSPARAM, false, fReIndex);
-        pSysParamCache  = new CSysParamDBCache(pSysParamDb);
-
         pAccountDb      = new CDBAccess(DBNameType::ACCOUNT, false, fReIndex);
         pAccountCache   = new CAccountDBCache(pAccountDb);
 
@@ -269,65 +241,40 @@ public:
         pDelegateDb     = new CDBAccess(DBNameType::DELEGATE, false, fReIndex);
         pDelegateCache  = new CDelegateDBCache(pDelegateDb);
 
-        pCdpDb          = new CDBAccess(DBNameType::CDP, false, fReIndex);
-        pCdpCache       = new CCdpDBCache(pCdpDb);
-
-        pClosedCdpDb    = new CDBAccess(DBNameType::CLOSEDCDP, false, fReIndex);
-        pClosedCdpCache = new CClosedCdpDBCache(pClosedCdpDb);
-
-        pDexDb          = new CDBAccess(DBNameType::DEX, false, fReIndex);
-        pDexCache       = new CDexDBCache(pDexDb);
-
         pBlockIndexDb   = new CBlockIndexDB(false, fReIndex);
         pBlockDb        = new CDBAccess(DBNameType::BLOCK, false, fReIndex);
         pBlockCache     = new CBlockDBCache(pBlockDb);
-
-        pLogDb          = new CDBAccess(DBNameType::LOG, false, fReIndex);
-        pLogCache       = new CLogDBCache(pLogDb);
 
         pReceiptDb      = new CDBAccess(DBNameType::RECEIPT, false, fReIndex);
         pReceiptCache   = new CTxReceiptDBCache(pReceiptDb);
 
         // memory-only cache
         pTxCache        = new CTxMemCache();
-        pPpCache        = new CPricePointMemCache();
     }
 
     ~CCacheDBManager() {
-        delete pSysParamCache;  pSysParamCache = nullptr;
         delete pAccountCache;   pAccountCache = nullptr;
         delete pAssetCache;     pAssetCache = nullptr;
         delete pContractCache;  pContractCache = nullptr;
         delete pDelegateCache;  pDelegateCache = nullptr;
-        delete pCdpCache;       pCdpCache = nullptr;
-        delete pClosedCdpCache; pClosedCdpCache = nullptr;
-        delete pDexCache;       pDexCache = nullptr;
-        delete pLogCache;       pLogCache = nullptr;
+        delete pBlockCache;     pBlockCache = nullptr;
         delete pReceiptCache;   pReceiptCache = nullptr;
 
-        delete pSysParamDb;     pSysParamDb = nullptr;
         delete pAccountDb;      pAccountDb = nullptr;
         delete pAssetDb;        pAssetDb = nullptr;
         delete pContractDb;     pContractDb = nullptr;
         delete pDelegateDb;     pDelegateDb = nullptr;
         delete pBlockIndexDb;   pBlockIndexDb = nullptr;
-        delete pBlockCache;     pBlockCache = nullptr;
-        delete pCdpDb;          pCdpDb = nullptr;
-        delete pClosedCdpDb;    pClosedCdpDb = nullptr;
-        delete pDexDb;          pDexDb = nullptr;
         delete pBlockDb;        pBlockDb = nullptr;
-        delete pLogDb;          pLogDb = nullptr;
         delete pReceiptDb;      pReceiptDb = nullptr;
 
         // memory-only cache
         delete pTxCache;        pTxCache = nullptr;
-        delete pPpCache;        pPpCache = nullptr;
     }
 
     bool Flush() {
-        if (pSysParamCache) pSysParamCache->Flush();
-
         if (pBlockIndexDb) pBlockIndexDb->Flush();
+
         if (pBlockCache) pBlockCache->Flush();
 
         if (pAccountCache) pAccountCache->Flush();
@@ -338,21 +285,11 @@ public:
 
         if (pDelegateCache) pDelegateCache->Flush();
 
-        if (pCdpCache) pCdpCache->Flush();
-
-        if (pClosedCdpCache) pClosedCdpCache->Flush();
-
-        if (pDexCache) pDexCache->Flush();
-
-        if (pLogCache) pLogCache->Flush();
-
         if (pReceiptCache) pReceiptCache->Flush();
 
         // Memory only cache, not bother to flush.
         // if (pTxCache)
         //     pTxCache->Flush();
-        // if (pPpCache)
-        //     pPpCache->Flush();
 
         return true;
     }
@@ -738,38 +675,10 @@ void Serialize(Stream &os, const std::shared_ptr<CBaseTx> &pa, int32_t nType, in
 
         case UCOIN_TRANSFER_TX:
             Serialize(os, *((CCoinTransferTx *)(pa.get())), nType, nVersion); break;
-        case UCOIN_REWARD_TX:
-            Serialize(os, *((CCoinRewardTx *)(pa.get())), nType, nVersion); break;
-        case UCOIN_BLOCK_REWARD_TX:
-            Serialize(os, *((CUCoinBlockRewardTx *)(pa.get())), nType, nVersion); break;
         case UCONTRACT_DEPLOY_TX:
             Serialize(os, *((CUniversalContractDeployTx *)(pa.get())), nType, nVersion); break;
         case UCONTRACT_INVOKE_TX:
             Serialize(os, *((CUniversalContractInvokeTx *)(pa.get())), nType, nVersion); break;
-        case PRICE_FEED_TX:
-            Serialize(os, *((CPriceFeedTx *)(pa.get())), nType, nVersion); break;
-        case PRICE_MEDIAN_TX:
-            Serialize(os, *((CBlockPriceMedianTx *)(pa.get())), nType, nVersion); break;
-
-        case CDP_STAKE_TX:
-            Serialize(os, *((CCDPStakeTx *)(pa.get())), nType, nVersion); break;
-        case CDP_REDEEM_TX:
-            Serialize(os, *((CCDPRedeemTx *)(pa.get())), nType, nVersion); break;
-        case CDP_LIQUIDATE_TX:
-            Serialize(os, *((CCDPLiquidateTx *)(pa.get())), nType, nVersion); break;
-
-        case DEX_TRADE_SETTLE_TX:
-            Serialize(os, *((CDEXSettleTx *)(pa.get())), nType, nVersion); break;
-        case DEX_CANCEL_ORDER_TX:
-            Serialize(os, *((CDEXCancelOrderTx *)(pa.get())), nType, nVersion); break;
-        case DEX_LIMIT_BUY_ORDER_TX:
-            Serialize(os, *((CDEXBuyLimitOrderTx *)(pa.get())), nType, nVersion); break;
-        case DEX_LIMIT_SELL_ORDER_TX:
-            Serialize(os, *((CDEXSellLimitOrderTx *)(pa.get())), nType, nVersion); break;
-        case DEX_MARKET_BUY_ORDER_TX:
-            Serialize(os, *((CDEXBuyMarketOrderTx *)(pa.get())), nType, nVersion); break;
-        case DEX_MARKET_SELL_ORDER_TX:
-            Serialize(os, *((CDEXSellMarketOrderTx *)(pa.get())), nType, nVersion); break;
 
         default:
             throw ios_base::failure(strprintf("Serialize: nTxType(%d:%s) error.",
@@ -844,16 +753,6 @@ void Unserialize(Stream &is, std::shared_ptr<CBaseTx> &pa, int32_t nType, int32_
             Unserialize(is, *((CCoinTransferTx *)(pa.get())), nType, nVersion);
             break;
         }
-        case UCOIN_REWARD_TX: {
-            pa = std::make_shared<CCoinRewardTx>();
-            Unserialize(is, *((CCoinRewardTx *)(pa.get())), nType, nVersion);
-            break;
-        }
-        case UCOIN_BLOCK_REWARD_TX: {
-            pa = std::make_shared<CUCoinBlockRewardTx>();
-            Unserialize(is, *((CUCoinBlockRewardTx *)(pa.get())), nType, nVersion);
-            break;
-        }
         case UCONTRACT_DEPLOY_TX: {
             pa = std::make_shared<CUniversalContractDeployTx>();
             Unserialize(is, *((CUniversalContractDeployTx *)(pa.get())), nType, nVersion);
@@ -864,63 +763,7 @@ void Unserialize(Stream &is, std::shared_ptr<CBaseTx> &pa, int32_t nType, int32_
             Unserialize(is, *((CUniversalContractInvokeTx *)(pa.get())), nType, nVersion);
             break;
         }
-        case PRICE_FEED_TX: {
-            pa = std::make_shared<CPriceFeedTx>();
-            Unserialize(is, *((CPriceFeedTx *)(pa.get())), nType, nVersion);
-            break;
-        }
-        case PRICE_MEDIAN_TX: {
-            pa = std::make_shared<CBlockPriceMedianTx>();
-            Unserialize(is, *((CBlockPriceMedianTx *)(pa.get())), nType, nVersion);
-            break;
-        }
 
-        case CDP_STAKE_TX: {
-            pa = std::make_shared<CCDPStakeTx>();
-            Unserialize(is, *((CCDPStakeTx *)(pa.get())), nType, nVersion);
-            break;
-        }
-        case CDP_REDEEM_TX: {
-            pa = std::make_shared<CCDPRedeemTx>();
-            Unserialize(is, *((CCDPRedeemTx *)(pa.get())), nType, nVersion);
-            break;
-        }
-        case CDP_LIQUIDATE_TX: {
-            pa = std::make_shared<CCDPLiquidateTx>();
-            Unserialize(is, *((CCDPLiquidateTx *)(pa.get())), nType, nVersion);
-            break;
-        }
-
-        case DEX_TRADE_SETTLE_TX: {
-            pa = std::make_shared<CDEXSettleTx>();
-            Unserialize(is, *((CDEXSettleTx *)(pa.get())), nType, nVersion);
-            break;
-        }
-        case DEX_CANCEL_ORDER_TX: {
-            pa = std::make_shared<CDEXCancelOrderTx>();
-            Unserialize(is, *((CDEXCancelOrderTx *)(pa.get())), nType, nVersion);
-            break;
-        }
-        case DEX_LIMIT_BUY_ORDER_TX: {
-            pa = std::make_shared<CDEXBuyLimitOrderTx>();
-            Unserialize(is, *((CDEXBuyLimitOrderTx *)(pa.get())), nType, nVersion);
-            break;
-        }
-        case DEX_LIMIT_SELL_ORDER_TX: {
-            pa = std::make_shared<CDEXSellLimitOrderTx>();
-            Unserialize(is, *((CDEXSellLimitOrderTx *)(pa.get())), nType, nVersion);
-            break;
-        }
-        case DEX_MARKET_BUY_ORDER_TX: {
-            pa = std::make_shared<CDEXBuyMarketOrderTx>();
-            Unserialize(is, *((CDEXBuyMarketOrderTx *)(pa.get())), nType, nVersion);
-            break;
-        }
-        case DEX_MARKET_SELL_ORDER_TX: {
-            pa = std::make_shared<CDEXSellMarketOrderTx>();
-            Unserialize(is, *((CDEXSellMarketOrderTx *)(pa.get())), nType, nVersion);
-            break;
-        }
         default:
             throw ios_base::failure(strprintf("Unserialize: nTxType(%d:%s) error.",
                 nTxType, GetTxType((TxType)nTxType)));

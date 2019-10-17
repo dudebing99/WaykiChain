@@ -44,9 +44,7 @@ config/version.o: config/build.h
 coin_CORE_H = \
   entities/account.h \
   entities/assett.h \
-  entities/cdp.h \
   entities/contract.h \
-  entities/dexorder.h \
   entities/id.h \
   entities/key.h \
   entities/keystore.h \
@@ -92,18 +90,14 @@ coin_CORE_H = \
   persistence/block.h \
   persistence/blockdb.h \
   persistence/cachewrapper.h \
-  persistence/cdpdb.h \
   persistence/contractdb.h \
   persistence/delegatedb.h \
   persistence/txreceiptdb.h \
   persistence/disk.h \
-  persistence/pricefeeddb.h \
-  persistence/sysparamdb.h \
   persistence/txdb.h \
   persistence/dbaccess.h \
   persistence/dbconf.h \
   persistence/dbiterator.h \
-  persistence/dexdb.h \
   persistence/logdb.h \
   random.h   \
   rpc/core/httpserver.h \
@@ -124,18 +118,12 @@ coin_CORE_H = \
   sigcache.h \
   tx/assettx.h \
   tx/accountregtx.h \
-  tx/blockrewardtx.h \
-  tx/blockpricemediantx.h \
-  tx/cdptx.h \
-  tx/coinrewardtx.h \
   tx/contracttx.h \
   tx/cointransfertx.h \
   tx/delegatetx.h \
-  tx/dextx.h \
   tx/coinstaketx.h \
   tx/merkletx.h \
   tx/mulsigtx.h \
-  tx/pricefeedtx.h \
   tx/tx.h \
   tx/txmempool.h \
   sync.h \
@@ -242,9 +230,7 @@ liblua53_a_SOURCES = \
 libcoin_server_a_CPPFLAGS = $(AM_CPPFLAGS) $(EVENT_CFLAGS) $(EVENT_PTHREADS_CFLAGS)
 libcoin_server_a_SOURCES = \
   entities/account.cpp \
-  entities/cdp.cpp \
   entities/contract.cpp \
-  entities/dexorder.cpp \
   entities/id.cpp \
   entities/key.cpp \
   entities/keystore.cpp \
@@ -266,7 +252,6 @@ libcoin_server_a_SOURCES = \
   rpc/rpcmining.cpp \
   rpc/rpcmisc.cpp \
   rpc/rpcnet.cpp \
-  rpc/rpcscoin.cpp \
   rpc/rpctx.cpp \
   rpc/rpcvm.cpp \
   rpc/rpcwallet.cpp \
@@ -274,16 +259,11 @@ libcoin_server_a_SOURCES = \
   tx/assettx.cpp \
   tx/accountregtx.cpp \
   tx/blockrewardtx.cpp \
-  tx/blockpricemediantx.cpp \
-  tx/cdptx.cpp \
-  tx/coinrewardtx.cpp \
   tx/contracttx.cpp \
   tx/cointransfertx.cpp \
   tx/delegatetx.cpp \
-  tx/dextx.cpp \
   tx/coinstaketx.cpp \
   tx/mulsigtx.cpp \
-  tx/pricefeedtx.cpp \
   tx/tx.cpp \
   tx/txmempool.cpp \
   $(VMLUA_H) \
@@ -319,7 +299,6 @@ libcoin_common_a_SOURCES = \
   netbase.cpp \
   p2p/protocol.cpp \
   persistence/block.cpp \
-  persistence/cdpdb.cpp \
   persistence/accountdb.cpp \
   persistence/assetdb.cpp \
   persistence/blockdb.cpp \
@@ -327,18 +306,14 @@ libcoin_common_a_SOURCES = \
   persistence/contractdb.cpp \
   persistence/delegatedb.cpp \
   persistence/txreceiptdb.cpp \
-  persistence/pricefeeddb.cpp \
   persistence/txdb.cpp \
   persistence/leveldbwrapper.cpp \
-  persistence/dexdb.cpp \
-  persistence/logdb.cpp \
   commons/support/cleanse.cpp \
   commons/support/events.cpp \
   commons/json/json_spirit_reader.cpp \
   commons/json/json_spirit_value.cpp \
   commons/json/json_spirit_writer.cpp \
   sync.cpp \
-  tx/coinrewardtx.cpp \
   $(COIN_CORE_H)
 
 if GLIBC_BACK_COMPAT

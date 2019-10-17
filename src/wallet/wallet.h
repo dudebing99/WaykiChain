@@ -24,7 +24,6 @@
 #include "main.h"
 #include "commons/serialize.h"
 #include "tx/cointransfertx.h"
-#include "tx/blockrewardtx.h"
 #include "tx/contracttx.h"
 #include "tx/delegatetx.h"
 #include "tx/accountregtx.h"

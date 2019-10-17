@@ -241,7 +241,6 @@ static const CRPCCommand vRPCCommands[] =
     { "getchaininfo",           &getchaininfo,           false,     false,      false },
 
     /* Block chain and UTXO */
-    { "getfcoingenesistxinfo",  &getfcoingenesistxinfo,  true,      true,       false },
     { "getblockcount",          &getblockcount,          true,      true,       false },
     { "getblock",               &getblock,               false,     false,      false },
     { "getrawmempool",          &getrawmempool,          true,      false,      false },
@@ -269,7 +268,6 @@ static const CRPCCommand vRPCCommands[] =
     { "getaccountinfo",         &getaccountinfo,         true,      false,      true },
     { "getnewaddr",             &getnewaddr,             true,      false,      true },
     { "gettxdetail",            &gettxdetail,            true,      false,      true },
-    { "getclosedcdp",           &getclosedcdp,           true,      false,      true },
     { "getwalletinfo",          &getwalletinfo,          true,      false,      true },
     { "importprivkey",          &importprivkey,          false,     false,      true },
     { "dropminerkeys",          &dropminerkeys,          false,     false,      true },
@@ -312,29 +310,6 @@ static const CRPCCommand vRPCCommands[] =
     { "submitucontractdeploytx", &submitucontractdeploytx, false,     false,      true },
     { "submitucontractcalltx",   &submitucontractcalltx,   false,     false,      true },
 
-    /* for CDP */
-    { "submitpricefeedtx",      &submitpricefeedtx,      true,      false,      true },
-    { "submitcoinstaketx",      &submitcoinstaketx,      true,      false,      true },
-    { "submitcdpstaketx",       &submitcdpstaketx,       true,      false,      true },
-    { "submitcdpredeemtx",      &submitcdpredeemtx,      true,      false,      true },
-    { "submitcdpliquidatetx",   &submitcdpliquidatetx,   true,      false,      true },
-
-    { "getscoininfo",           &getscoininfo,          false,     false,      false },
-    { "getcdp",                 &getcdp,                false,     false,      false },
-    { "getusercdp",             &getusercdp,            false,     false,      false },
-
-    /* for dex */
-    { "submitdexbuylimitordertx",   &submitdexbuylimitordertx,   true,     false,      false },
-    { "submitdexselllimitordertx",  &submitdexselllimitordertx,  true,     false,      false },
-    { "submitdexbuymarketordertx",  &submitdexbuymarketordertx,  true,     false,      false },
-    { "submitdexsellmarketordertx", &submitdexsellmarketordertx, true,     false,      false },
-    { "submitdexsettletx",          &submitdexsettletx,          true,     false,      false },
-    { "submitdexcancelordertx",     &submitdexcancelordertx,     true,     false,      false },
-
-    { "getdexorder",                &getdexorder,                true,     false,      false },
-    { "getdexsysorders",            &getdexsysorders,            true,     false,      false },
-    { "getdexorders",               &getdexorders,               true,     false,      false },
-
     /* for asset */
     { "submitassetissuetx",         &submitassetissuetx,         true,     false,      false },
     { "submitassetupdatetx",        &submitassetupdatetx,        true,     false,      false },
@@ -349,7 +324,6 @@ static const CRPCCommand vRPCCommands[] =
     { "gethash",                &gethash,                true,      false,      true },
     { "startcommontpstest",     &startcommontpstest,     true,      true,       false },
     { "startcontracttpstest",   &startcontracttpstest,   true,      true,       false },
-    { "getblockfailures",       &getblockfailures,       false,     false,      false },
 
     /* vm functions work in vm simulator */
     { "vmexecutescript",        &vmexecutescript,        true,      true,       true },

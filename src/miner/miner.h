@@ -75,11 +75,7 @@ vector<MinedBlockInfo> GetMinedBlocks(uint32_t count);
 void GenerateCoinBlock(bool fGenerate, CWallet *pWallet, int32_t nThreads);
 
 /** Generate a new block pre-stable coin release */
-std::unique_ptr<CBlock> CreateNewBlockPreStableCoinRelease(CCacheWrapper &cwIn);
-/** Generate fund coin's genesis block */
-std::unique_ptr<CBlock> CreateStableCoinGenesisBlock();
-/** Generate a new block after stable coin release */
-std::unique_ptr<CBlock> CreateNewBlockStableCoinRelease(CCacheWrapper &cwIn);
+std::unique_ptr<CBlock> CreateNewBlock(CCacheWrapper &cwIn);
 
 bool CreateBlockRewardTx(const int64_t currentTime, const CAccount &delegate, CAccountDBCache &accountCache,
                          CBlock *pBlock);

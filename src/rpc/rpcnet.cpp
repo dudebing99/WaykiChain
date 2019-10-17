@@ -11,7 +11,6 @@
 #include "p2p/protocol.h"
 #include "sync.h"
 #include "commons/util.h"
-#include "tx/blockrewardtx.h"
 
 #include "commons/json/json_spirit_value.h"
 

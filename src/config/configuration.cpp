@@ -61,30 +61,6 @@ string G_CONFIG_TABLE::GetDelegateSignature(const NET_TYPE type) const {
     return delegateSignature[type];
 }
 
-const string G_CONFIG_TABLE::GetInitFcoinOwnerPubKey(const NET_TYPE type) const {
-    assert(type >=0 && type < 3);
-    return initFcoinOwnerPubKey[type];
-}
-
-const string G_CONFIG_TABLE::GetDexMatchServicePubKey(const NET_TYPE type) const {
-    return dexMatchPubKey[type];
-}
-
-const vector<string> G_CONFIG_TABLE::GetStableCoinGenesisTxid(const NET_TYPE type) const {
-    assert(type >= 0 && type < 3);
-    return stableCoinGenesisTxid[type];
-}
-
-uint32_t G_CONFIG_TABLE::GetFeatureForkHeight(const NET_TYPE type) const {
-    assert(type >= 0 && type < 3);
-    return nFeatureForkHeight[type];
-}
-
-uint32_t G_CONFIG_TABLE::GetStableCoinGenesisHeight(const NET_TYPE type) const {
-    assert(type >= 0 && type < 3);
-    return nStableScoinGenesisHeight[type];
-}
-
 vector<uint32_t> G_CONFIG_TABLE::GetSeedNodeIP() const { return pnSeed; }
 
 uint8_t* G_CONFIG_TABLE::GetMagicNumber(const NET_TYPE type) const {
@@ -260,15 +236,3 @@ uint64_t G_CONFIG_TABLE::DefaultFee = 15;
 uint32_t G_CONFIG_TABLE::TotalDelegateNum = 11;
 // Max Number of Delegate Candidate to Vote for by a single account
 uint32_t G_CONFIG_TABLE::MaxVoteCandidateNum = 22;
-
-// Block height for stable coin genesis
-uint32_t G_CONFIG_TABLE::nStableScoinGenesisHeight[3] {
-    4109388,    // mainnet
-    500,        // testnet
-    8};         // regtest
-
-// Block height to enable feature fork version
-uint32_t G_CONFIG_TABLE::nFeatureForkHeight[3] {
-    4109588,    // mainnet: Wed Oct 16 2019 10:16:00 GMT+0800
-    520,        // testnet
-    10};        // regtest

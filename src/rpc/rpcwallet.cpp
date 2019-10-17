@@ -327,22 +327,8 @@ Value submitsendtx(const Array& params, bool fHelp) {
     string memo    = params.size() == 5 ? params[4].get_str() : "";
     int32_t height = chainActive.Height();
     std::shared_ptr<CBaseTx> pBaseTx;
-
-    if (GetFeatureForkVersion(height) == MAJOR_VER_R1) {
-        if (cmCoin.symbol != SYMB::WICC || cmFee.symbol != SYMB::WICC)
-            throw JSONRPCError(REJECT_INVALID, strprintf("Only support WICC for coin symbol or fee symbol before "
-                "height=%u! current height=%d", SysCfg().GetFeatureForkHeight(), height));
-
-        if (sendUserId.is<CKeyID>())
-            throw JSONRPCError(REJECT_INVALID, strprintf("%s is unregistered, should register first",
-                                                         sendUserId.get<CKeyID>().ToAddress()));
-
-        pBaseTx = std::make_shared<CBaseCoinTransferTx>(sendUserId, recvUserId, height, cmCoin.GetSawiAmount(),
-            cmFee.GetSawiAmount(), memo);
-    } else {  // MAJOR_VER_R2
-        pBaseTx = std::make_shared<CCoinTransferTx>(sendUserId, recvUserId, height, cmCoin.symbol,
-            cmCoin.GetSawiAmount(), cmFee.symbol, cmFee.GetSawiAmount(), memo);
-    }
+    pBaseTx = std::make_shared<CCoinTransferTx>(sendUserId, recvUserId, height, cmCoin.symbol, cmCoin.GetSawiAmount(),
+                                                cmFee.symbol, cmFee.GetSawiAmount(), memo);
 
     return SubmitTx(account.keyid, *pBaseTx);
 }
@@ -784,4 +770,237 @@ Value getsignature(const Array& params, bool fHelp) {
        Object obj;
        obj.push_back(Pair("signature", HexStr(signature.begin(), signature.end())));
        return obj;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// asset tx rpc
+
+Value submitassetissuetx(const Array& params, bool fHelp) {
+    if (fHelp || params.size() < 6 || params.size() > 7) {
+        throw runtime_error(
+            "submitassetissuetx \"addr\" \"asset_symbol\" \"asset_owner_addr\" \"asset_name\" total_supply mintable [symbol:fee:unit]\n"
+            "\nsubmit an asset issue tx.\n"
+            "\nthe tx creator must have enough WICC for issued fee(550 WICC).\n"
+            "\nArguments:\n"
+            "1.\"addr\":            (string, required) tx owner address\n"
+            "2.\"asset_symbol\":    (string, required) asset symbol, must be composed of 6 or 7 capital letters [A-Z]\n"
+            "3.\"asset_owner_addr\":(string, required) asset owner address, can be same as tx owner address\n"
+            "4.\"asset_name\":      (string, required) asset long name, E.g WaykiChain coin\n"
+            "5.\"total_supply\":    (numeric, required) asset total supply\n"
+            "6.\"mintable\":        (boolean, required) whether this asset token can be minted in the future\n"
+            "7.\"symbol:fee:unit\": (string:numeric:string, optional) fee paid for miner, default is WICC:10000:sawi\n"
+            "\nResult:\n"
+            "\"txid\"               (string) The new transaction id.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("submitassetissuetx", "\"10-2\" \"CNY\" \"10-2\" \"RMB\" 1000000000000000 true")
+            + "\nAs json rpc call\n"
+            + HelpExampleRpc("submitassetissuetx", "\"10-2\", \"CNY\", \"10-2\", \"RMB\", 1000000000000000, true")
+        );
+    }
+
+    EnsureWalletIsUnlocked();
+
+    const CUserID& uid             = RPC_PARAM::GetUserId(params[0]);
+    const TokenSymbol& assetSymbol = RPC_PARAM::GetAssetIssueSymbol(params[1]);
+    const CUserID& assetOwnerUid   = RPC_PARAM::GetUserId(params[2]);
+    const TokenName& assetName     = RPC_PARAM::GetAssetName(params[3]);
+    int64_t totalSupply            = params[4].get_int64();
+    if (totalSupply <= 0 || (uint64_t)totalSupply > MAX_ASSET_TOTAL_SUPPLY)
+        throw JSONRPCError(RPC_INVALID_PARAMS,
+                           strprintf("asset total_supply=%lld can not <= 0 or > %llu", totalSupply, MAX_ASSET_TOTAL_SUPPLY));
+    bool mintable    = params[5].get_bool();
+    ComboMoney cmFee = RPC_PARAM::GetFee(params, 6, TxType::ASSET_ISSUE_TX);
+
+    // Get account for checking balance
+    CAccount account = RPC_PARAM::GetUserAccount(*pCdMan->pAccountCache, uid);
+    RPC_PARAM::CheckAccountBalance(account, cmFee.symbol, SUB_FREE, cmFee.GetSawiAmount());
+
+    uint64_t assetIssueFee = 550 * COIN; //550 WICC
+    RPC_PARAM::CheckAccountBalance(account, SYMB::WICC, SUB_FREE, assetIssueFee);
+
+    int32_t validHeight = chainActive.Height();
+    CAccount ownerAccount;
+    CRegID *pOwnerRegid;
+    if (account.IsMyUid(assetOwnerUid)) {
+        pOwnerRegid = &account.regid;
+    } else {
+        ownerAccount = RPC_PARAM::GetUserAccount(*pCdMan->pAccountCache, assetOwnerUid);
+        pOwnerRegid = &ownerAccount.regid;
+    }
+
+    if (pOwnerRegid->IsEmpty() || !pOwnerRegid->IsMature(validHeight)) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, strprintf("owner regid=%s is not registerd or not mature",
+            pOwnerRegid->ToString()));
+    }
+
+    CBaseAsset asset(assetSymbol, CUserID(*pOwnerRegid), assetName, (uint64_t)totalSupply, mintable);
+    CAssetIssueTx tx(uid, validHeight, cmFee.symbol, cmFee.GetSawiAmount(), asset);
+    return SubmitTx(account.keyid, tx);
+}
+
+Value submitassetupdatetx(const Array& params, bool fHelp) {
+    if (fHelp || params.size() < 4 || params.size() > 5) {
+        throw runtime_error(
+            "submitassetupdatetx \"addr\" \"asset_symbol\" \"update_type\" \"update_value\" [symbol:fee:unit]\n"
+            "\nsubmit an asset update tx.\n"
+            "\nthe tx creator must have enough WICC for asset update fee(200 WICC).\n"
+            "\nArguments:\n"
+            "1.\"addr\":            (string, required) tx owner address\n"
+            "2.\"asset_symbol\":    (string, required) asset symbol, must be composed of 6 or 7 capital letters [A-Z]\n"
+            "3.\"update_type\":     (string, required) asset update type, can be (owner_addr, name, mint_amount)\n"
+            "4.\"update_value\":    (string, required) update the value specified by update_type, value format see the submitassetissuetx\n"
+            "5.\"symbol:fee:unit\": (string:numeric:string, optional) fee paid for miner, default is WICC:10000:sawi\n"
+            "\nResult:\n"
+            "\"txid\"               (string) The new transaction id.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("submitassetupdatetx", "\"10-2\" \"CNY\" \"mint_amount\" \"100000000\"")
+            + "\nAs json rpc call\n"
+            + HelpExampleRpc("submitassetupdatetx", "\"10-2\", \"CNY\", \"mint_amount\", \"100000000\"")
+        );
+    }
+
+    EnsureWalletIsUnlocked();
+
+    const CUserID& uid             = RPC_PARAM::GetUserId(params[0]);
+    const TokenSymbol& assetSymbol = RPC_PARAM::GetAssetIssueSymbol(params[1]);
+    const string &updateTypeStr = params[2].get_str();
+    const Value &jsonUpdateValue = params[3].get_str();
+
+    auto pUpdateType = CAssetUpdateData::ParseUpdateType(updateTypeStr);
+    if (!pUpdateType)
+        throw JSONRPCError(RPC_INVALID_PARAMS, strprintf("Invalid update_type=%s", updateTypeStr));
+
+    CAssetUpdateData updateData;
+    switch(*pUpdateType) {
+        case CAssetUpdateData::OWNER_UID: {
+            const string &valueStr = jsonUpdateValue.get_str();
+            auto pNewOwnerUid = CUserID::ParseUserId(valueStr);
+            if (!pNewOwnerUid) {
+                throw JSONRPCError(RPC_INVALID_PARAMS, strprintf("Invalid UserID format of owner_uid=%s",
+                    valueStr));
+            }
+            updateData.Set(*pNewOwnerUid);
+            break;
+        }
+        case CAssetUpdateData::NAME: {
+            const string &valueStr = jsonUpdateValue.get_str();
+            if (valueStr.size() == 0 || valueStr.size() > MAX_ASSET_NAME_LEN) {
+                throw JSONRPCError(RPC_INVALID_PARAMS, strprintf("invalid asset name! empty, or length=%d greater than %d",
+                    valueStr.size(), MAX_ASSET_NAME_LEN));
+            }
+            updateData.Set(valueStr);
+            break;
+        }
+        case CAssetUpdateData::MINT_AMOUNT: {
+            uint64_t mintAmount;
+            if (jsonUpdateValue.type() == json_spirit::Value_type::int_type ) {
+                int64_t v = jsonUpdateValue.get_int64();
+                if (v < 0)
+                    throw JSONRPCError(RPC_INVALID_PARAMS, strprintf("invalid mint amount=%lld as uint64_t type",
+                        v, MAX_ASSET_NAME_LEN));
+                mintAmount = v;
+            } else if (jsonUpdateValue.type() == json_spirit::Value_type::str_type) {
+                const string &valueStr = jsonUpdateValue.get_str();
+                if (!ParseUint64(valueStr, mintAmount))
+                    throw JSONRPCError(RPC_INVALID_PARAMS, strprintf("invalid mint_amount=%s as uint64_t type",
+                        valueStr, MAX_ASSET_NAME_LEN));
+            } else
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid json value type: %s",
+                    JSON::GetValueTypeName(jsonUpdateValue.type())));
+
+            if (mintAmount == 0 || mintAmount > MAX_ASSET_TOTAL_SUPPLY)
+                throw JSONRPCError(RPC_INVALID_PARAMS, strprintf("Invalid asset mint_amount=%llu, cannot be 0, or greater than %llu",
+                    mintAmount, MAX_ASSET_TOTAL_SUPPLY));
+
+            updateData.Set(mintAmount);
+            break;
+        }
+        default: {
+            throw JSONRPCError(RPC_INVALID_PARAMS, strprintf("unsupported updated_key=%s", updateTypeStr));
+        }
+    }
+
+    ComboMoney cmFee = RPC_PARAM::GetFee(params, 4, TxType::ASSET_UPDATE_TX);
+
+    // Get account for checking balance
+    CAccount account = RPC_PARAM::GetUserAccount(*pCdMan->pAccountCache, uid);
+    RPC_PARAM::CheckAccountBalance(account, cmFee.symbol, SUB_FREE, cmFee.GetSawiAmount());
+
+    uint64_t assetUpdateFee = 110 * COIN; // 110 WICC
+    RPC_PARAM::CheckAccountBalance(account, SYMB::WICC, SUB_FREE, assetUpdateFee);
+
+    int32_t validHeight = chainActive.Height();
+
+    if (*pUpdateType == CAssetUpdateData::OWNER_UID) {
+        CUserID &ownerUid = updateData.get<CUserID>();
+        if (account.IsMyUid(ownerUid))
+            return JSONRPCError(RPC_INVALID_PARAMS, strprintf("the new owner uid=%s is belong to old owner account",
+                    ownerUid.ToDebugString()));
+
+        CAccount newAccount = RPC_PARAM::GetUserAccount(*pCdMan->pAccountCache, ownerUid);
+        if (!newAccount.IsRegistered())
+            return JSONRPCError(RPC_INVALID_PARAMS, strprintf("the new owner account is not registered! new uid=%s",
+                    ownerUid.ToDebugString()));
+        if (!newAccount.regid.IsMature(validHeight))
+            return JSONRPCError(RPC_INVALID_PARAMS, strprintf("the new owner regid is not matured! new uid=%s",
+                ownerUid.ToDebugString()));
+        ownerUid = newAccount.regid;
+    }
+
+    CAssetUpdateTx tx(uid, validHeight, cmFee.symbol, cmFee.GetSawiAmount(), assetSymbol, updateData);
+    return SubmitTx(account.keyid, tx);
+}
+
+extern Value getasset(const Array& params, bool fHelp) {
+     if (fHelp || params.size() < 1 || params.size() > 1) {
+        throw runtime_error(
+            "getasset \"asset_symbol\"\n"
+            "\nget asset by symbol.\n"
+            "\nArguments:\n"
+            "1.\"aset_symbol\":            (string, required) asset symbol\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getasset", "MINEUSD")
+            + "\nAs json rpc call\n"
+            + HelpExampleRpc("getasset", "MINEUSD")
+        );
+    }
+    const TokenSymbol& assetSymbol = RPC_PARAM::GetAssetIssueSymbol(params[0]);
+
+    CAsset asset;
+    if (!pCdMan->pAssetCache->GetAsset(assetSymbol, asset))
+        throw JSONRPCError(RPC_INVALID_PARAMS, strprintf("asset not exist! asset_symbol=%s", assetSymbol));
+
+    Object obj = AssetToJson(*pCdMan->pAccountCache, asset);
+    return obj;
+}
+
+extern Value getassets(const Array& params, bool fHelp) {
+     if (fHelp || params.size() > 0) {
+        throw runtime_error(
+            "getassets\n"
+            "\nget all assets.\n"
+            "\nArguments:\n"
+            "\nResult: a list of assets\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getassets", "")
+            + "\nAs json rpc call\n"
+            + HelpExampleRpc("getassets", "")
+        );
+    }
+
+    auto pGetter = pCdMan->pAssetCache->CreateUserAssetsGetter();
+    if (!pGetter || !pGetter->Execute()) {
+        throw JSONRPCError(RPC_INVALID_PARAMS, "get all user issued assets error!");
+    }
+
+    Array assetArray;
+    for (auto &item : pGetter->data_list) {
+        const CAsset &asset = item.second;
+        assetArray.push_back(AssetToJson(*pCdMan->pAccountCache, asset));
+    }
+
+    Object obj;
+    obj.push_back(Pair("count", (int64_t)pGetter->data_list.size()));
+    obj.push_back(Pair("assets", assetArray));
+    return obj;
 }

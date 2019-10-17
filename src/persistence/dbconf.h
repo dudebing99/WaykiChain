@@ -90,24 +90,6 @@ namespace dbk {
         /**** delegate db                                                                      */ \
         DEFINE( VOTE,                 "vote",   DELEGATE )      /* "vote{(uint64t)MAX - $votedBcoins}{$RegId} --> 1 */ \
         DEFINE( REGID_VOTE,           "ridv",   DELEGATE )      /* "ridv --> $votes" */ \
-        /**** cdp db                                                                     */ \
-        DEFINE( STAKE_FCOIN,          "fcoin",  CDP )           /* fcoin{(uint64t)MAX - staked_fcoins}_{RegId} --> 1 */ \
-        DEFINE( CDP,                  "cid",    CDP )           /* cid{$cdpid} --> CUserCDP */ \
-        DEFINE( REGID_CDP,            "rcdp",   CDP )           /* rcdp{$RegID} --> {set<cdpid>} */ \
-        DEFINE( CDP_RATIO,            "cdpr",   CDP )           /* cdpr{$Ratio}{$cdpid} --> CUserCDP */ \
-        DEFINE( CDP_GLOBAL_STAKED_BCOINS,   "cgsb", CDP )       /* cgsb -> $amount */ \
-        DEFINE( CDP_GLOBAL_OWED_SCOINS,     "cgos", CDP )       /* cgos -> $amount */ \
-        DEFINE( CDP_GLOBAL_HALT,      "cgh",    CDP )           /* cgh -> 0 | 1 */ \
-        DEFINE( CDP_IR_PARAM_A,       "ira",    CDP )           /* [prefix] --> param_a */ \
-        DEFINE( CDP_IR_PARAM_B,       "irb",    CDP )           /* [prefix] --> param_b */ \
-        /**** cdp closed by redeem/forced or manned liquidate ***/  \
-        DEFINE( CLOSED_CDP_TX,        "ctx",    CLOSEDCDP )     /* ccdp{cdpid} -> 1 */ \
-        DEFINE( CLOSED_TX_CDP,        "txc",    CLOSEDCDP )     /* ccdp{cdpid} -> 1 */ \
-        /**** dex db                                                                    */ \
-        DEFINE( DEX_ACTIVE_ORDER,     "dato",   DEX )           /* [prefix]{txid} --> active order */ \
-        DEFINE( DEX_BLOCK_ORDERS,     "dbos",   DEX )           /* [prefix]{height, generate_type, txid} --> active order */ \
-        /**** log db                                                                    */ \
-        DEFINE( TX_EXECUTE_FAIL,      "txef",   LOG )           /* [prefix]{height}{txid} --> {error code, error message} */ \
         /**** tx receipt db                                                                    */ \
         DEFINE( TX_RECEIPT,           "txrc",   RECEIPT )       /* [prefix]{txid} --> {receipts} */ \
         /*                                                                             */ \

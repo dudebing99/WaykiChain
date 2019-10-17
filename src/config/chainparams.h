@@ -121,8 +121,7 @@ public:
         te += strprintf("fTxIndex:%d\n",                            fTxIndex);
         te += strprintf("fLogFailures:%d\n",                        fLogFailures);
         te += strprintf("nTimeBestReceived:%llu\n",                 nTimeBestReceived);
-        te += strprintf("nBlockIntervalPreStableCoinRelease:%u\n",  nBlockIntervalPreStableCoinRelease);
-        te += strprintf("nBlockIntervalStableCoinRelease:%u\n",     nBlockIntervalStableCoinRelease);
+        te += strprintf("nBlockInterval:%u\n",                      nBlockInterval);
         te += strprintf("nCacheSize:%u\n",                          nCacheSize);
         te += strprintf("nTxCacheHeight:%u\n",                      nTxCacheHeight);
         te += strprintf("nLogMaxSize:%u\n",                         nLogMaxSize);
@@ -191,22 +190,15 @@ public:
     void SetLogFailures(bool flag) const { fLogFailures = flag; }
     void SetGenReceipt(bool flag) const { fGenReceipt = flag; }
     void SetBestRecvTime(int64_t nTime) const { nTimeBestReceived = nTime; }
-    int32_t GetMaxForkHeight(int32_t currBlockHeight) const;
     const MessageStartChars& MessageStart() const { return pchMessageStart; }
     const vector<uint8_t>& AlertKey() const { return vAlertPubKey; }
     int32_t GetDefaultPort() const { return nDefaultPort; }
-    uint32_t GetBlockIntervalPreStableCoinRelease() const { return nBlockIntervalPreStableCoinRelease; }
-    uint32_t GetBlockIntervalStableCoinRelease() const { return nBlockIntervalStableCoinRelease; }
-    uint32_t GetFeatureForkHeight() const { return nFeatureForkHeight; }
-    uint32_t GetStableCoinGenesisHeight() const { return nStableCoinGenesisHeight; }
-    CRegID GetFcoinGenesisRegId() const { return CRegID(nStableCoinGenesisHeight, 1); }
-    CRegID GetDexMatchSvcRegId() const  { return CRegID(nStableCoinGenesisHeight, 3); }
+    uint32_t GetBlockInterval() const { return nBlockInterval; }
     virtual uint64_t GetMaxFee() const { return 1000 * COIN; }
     virtual const CBlock& GenesisBlock() const = 0;
     const uint256& GetGenesisBlockHash() const { return genesisBlockHash; }
     bool CreateGenesisBlockRewardTx(vector<std::shared_ptr<CBaseTx> >& vptx, NET_TYPE type);
     bool CreateGenesisDelegateTx(vector<std::shared_ptr<CBaseTx> >& vptx, NET_TYPE type);
-    bool CreateFundCoinRewardTx(vector<std::shared_ptr<CBaseTx> >& vptx, NET_TYPE type);
     virtual bool RequireRPCPassword() const { return true; }
     const string& DataDir() const { return strDataDir; }
     virtual NET_TYPE NetworkID() const = 0;
@@ -247,10 +239,7 @@ protected:
     int32_t nDefaultPort;
     int32_t nRPCPort;
     string alartPKey;
-    uint32_t nStableCoinGenesisHeight;
-    uint32_t nFeatureForkHeight;
-    uint32_t nBlockIntervalPreStableCoinRelease;
-    uint32_t nBlockIntervalStableCoinRelease;
+    uint32_t nBlockInterval;
     string strDataDir;
     vector<CDNSSeedData> vSeeds;
     vector<uint8_t> base58Prefixes[MAX_BASE58_TYPES];

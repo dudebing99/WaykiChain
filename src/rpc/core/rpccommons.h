@@ -14,7 +14,6 @@
 #include "entities/asset.h"
 #include "entities/account.h"
 #include "tx/tx.h"
-#include "persistence/dexdb.h"
 
 using namespace std;
 using namespace json_spirit;
@@ -62,11 +61,7 @@ namespace RPC_PARAM {
 
     void CheckAccountBalance(CAccount &account, const TokenSymbol &tokenSymbol, const BalanceOpType opType,
                              const uint64_t value);
-
-    void CheckActiveOrderExisted(CDexDBCache &dexCache, const uint256 &orderTxid);
-
-    void CheckOrderSymbols(const string &title, const TokenSymbol &coinSymbol,
-                           const TokenSymbol &assetSymbol);
+                             
     // parse hex str
     bool ParseHex(const string &hexStr, string &binStrOut, string &errStrOut);
 }

@@ -187,38 +187,6 @@ bool CCoinTransferTx::ExecuteTx(CTxExecuteContext &context) {
         }
 
         uint64_t actualCoinsToSend = transfer.coin_amount;
-        if (transfer.coin_symbol == SYMB::WUSD) {  // if transferring WUSD, must pay friction fees to the risk reserve
-            uint64_t riskReserveFeeRatio;
-            if (!cw.sysParamCache.GetParam(SCOIN_RESERVE_FEE_RATIO, riskReserveFeeRatio)) {
-                return state.DoS(100, ERRORMSG("CCoinTransferTx::ExecuteTx, transfers[%d], read SCOIN_RESERVE_FEE_RATIO error", i),
-                                READ_SYS_PARAM_FAIL, "bad-read-sysparamdb");
-            }
-            uint64_t reserveFeeScoins = transfer.coin_amount * riskReserveFeeRatio / RATIO_BOOST;
-            if (reserveFeeScoins > 0) {
-                actualCoinsToSend -= reserveFeeScoins;
-
-                CAccount fcoinGenesisAccount;
-                if (!cw.accountCache.GetFcoinGenesisAccount(fcoinGenesisAccount)) {
-                    return state.DoS(100, ERRORMSG("CCoinTransferTx::ExecuteTx, transfers[%d],"
-                        " read fcoinGenesisUid %s account info error",
-                        i, SysCfg().GetFcoinGenesisRegId().ToString()), READ_ACCOUNT_FAIL, "bad-read-accountdb");
-                }
-
-                if (!fcoinGenesisAccount.OperateBalance(SYMB::WUSD, ADD_FREE, reserveFeeScoins)) {
-                    return state.DoS(100, ERRORMSG("CCoinTransferTx::ExecuteTx, add scoins to fcoin genesis account failed"),
-                                     UPDATE_ACCOUNT_FAIL, "failed-add-scoins");
-                }
-                if (!cw.accountCache.SaveAccount(fcoinGenesisAccount))
-                    return state.DoS(100, ERRORMSG("CCoinTransferTx::ExecuteTx, transfers[%d],"
-                        " update fcoinGenesisAccount info error", i),
-                        UPDATE_ACCOUNT_FAIL, "bad-save-accountdb");
-
-                CUserID fcoinGenesisUid(fcoinGenesisAccount.regid);
-                receipts.emplace_back(txUid, fcoinGenesisUid, SYMB::WUSD, reserveFeeScoins, ReceiptCode::TRANSFER_FEE_TO_RISERVE);
-                receipts.emplace_back(txUid, transfer.to_uid, SYMB::WUSD, actualCoinsToSend, ReceiptCode::TRANSFER_ACTUAL_COINS);
-            }
-        }
-
         if (srcAccount.IsMyUid(transfer.to_uid)) {
             if (!srcAccount.OperateBalance(transfer.coin_symbol, ADD_FREE, actualCoinsToSend)) {
                 return state.DoS(100, ERRORMSG("CCoinTransferTx::ExecuteTx, transfers[%d], failed to add coins in toUid %s account",

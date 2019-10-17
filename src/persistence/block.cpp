@@ -78,27 +78,6 @@ map<TokenSymbol, uint64_t> CBlock::GetFees() const {
     return fees;
 }
 
-map<CoinPricePair, uint64_t> CBlock::GetBlockMedianPrice() const {
-    if (GetFeatureForkVersion(GetHeight()) == MAJOR_VER_R1) {
-        return map<CoinPricePair, uint64_t>();
-    }
-
-    for (size_t index = 1; index < vptx.size(); ++ index) {
-        if (vptx[index]->IsPriceFeedTx()) {
-            continue;
-        } else if (vptx[index]->IsPriceMedianTx()) {
-            return ((CBlockPriceMedianTx*)vptx[index].get())->GetMedianPrice();
-        } else {
-            break;
-        }
-    }
-
-    LogPrint("ERROR", "GetBlockMedianPrice() : failed to acquire median price, height: %u, hash: %s\n", GetHeight(),
-             GetHash().GetHex());
-    assert(false && "block does not have price median tx");
-    return map<CoinPricePair, uint64_t>();
-}
-
 CUserID CBlock::GetMinerUserID() const {
     assert(vptx.size() > 0);
     assert(vptx[0]->IsBlockRewardTx());
@@ -107,15 +86,9 @@ CUserID CBlock::GetMinerUserID() const {
 }
 
 void CBlock::Print(CBlockDBCache& blockCache) const {
-    string medianPrices;
-    for (const auto &item : GetBlockMedianPrice()) {
-        medianPrices += strprintf("{%s/%s -> %llu}", std::get<0>(item.first), std::get<1>(item.first), item.second);
-    }
-
     LogPrint("DEBUG", "block height=%d, hash=%s, ver=%d, hashPrevBlock=%s, merkleRootHash=%s, nTime=%u, nNonce=%u, vtx=%u, nFuel=%d, "
-             "nFuelRate=%d, median prices: %s\n",
-             height, GetHash().ToString(), nVersion, prevBlockHash.ToString(), merkleRootHash.ToString(), nTime, nNonce,
-             vptx.size(), nFuel, nFuelRate, medianPrices);
+        "nFuelRate=%d\n", height, GetHash().ToString(), nVersion, prevBlockHash.ToString(), merkleRootHash.ToString(), nTime, nNonce,
+        vptx.size(), nFuel, nFuelRate);
     // LogPrint("INFO", "list transactions:\n");
     // for (uint32_t i = 0; i < vptx.size(); i++) {
     //     LogPrint("INFO", "%s ", vptx[i]->ToString(blockCache));

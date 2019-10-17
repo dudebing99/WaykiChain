@@ -135,9 +135,8 @@ static const uint32_t MAX_TRANSFER_SIZE          = 100;        // maximun transf
 static const string LUA_CONTRACT_LOCATION_PREFIX = "/tmp/lua/";  // prefix of lua contract file location
 static const string LUA_CONTRACT_HEADLINE        = "mylib = require";
 
-static const uint64_t INITIAL_BASE_COIN_AMOUNT               = 210000000;  // 210 million
-static const uint32_t BLOCK_INTERVAL_PRE_STABLE_COIN_RELEASE = 10;         // 10 seconds
-static const uint32_t BLOCK_INTERVAL_STABLE_COIN_RELEASE     = 3;          // 3 seconds
+static const uint64_t INITIAL_BASE_COIN_AMOUNT = 210000000;  // 210 million
+static const uint32_t BLOCK_INTERVAL           = 10;         // 10 seconds
 
 static const uint64_t INITIAL_SUBSIDY_RATE = 5;  // Initial subsidy rate upon vote casting
 static const uint64_t FIXED_SUBSIDY_RATE   = 1;  // Eventual/lasting subsidy rate for vote casting

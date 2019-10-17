@@ -208,7 +208,7 @@ inline void ProcessGetData(CNode *pFrom) {
                 }
                 if (!pushed && inv.type == MSG_TX) {
                     std::shared_ptr<CBaseTx> pBaseTx = mempool.Lookup(inv.hash);
-                    if (pBaseTx.get() && !pBaseTx->IsBlockRewardTx() && !pBaseTx->IsPriceMedianTx()) {
+                    if (pBaseTx.get() && !pBaseTx->IsBlockRewardTx()) {
                         CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
                         ss.reserve(1000);
                         ss << pBaseTx;
@@ -528,7 +528,7 @@ inline bool ProcessTxMessage(CNode *pFrom, string strCommand, CDataStream &vRecv
         return ERRORMSG("Unknown transaction type, ignore");
     }
 
-    if (pBaseTx->IsBlockRewardTx() || pBaseTx->IsPriceMedianTx()) {
+    if (pBaseTx->IsBlockRewardTx()) {
         return ERRORMSG("Forbidden transaction from network, raw: %s", HexStr(vRecv.begin(), vRecv.end()));
     }
 

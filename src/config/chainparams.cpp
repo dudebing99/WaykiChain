@@ -38,10 +38,7 @@ public:
         nDefaultPort                       = IniCfg().GetDefaultPort(MAIN_NET);
         nRPCPort                           = IniCfg().GetRPCPort(MAIN_NET);
         strDataDir                         = "main";
-        nBlockIntervalPreStableCoinRelease = BLOCK_INTERVAL_PRE_STABLE_COIN_RELEASE;
-        nBlockIntervalStableCoinRelease    = BLOCK_INTERVAL_STABLE_COIN_RELEASE;
-        nFeatureForkHeight                 = IniCfg().GetFeatureForkHeight(MAIN_NET);
-        nStableCoinGenesisHeight           = IniCfg().GetStableCoinGenesisHeight(MAIN_NET);
+        nBlockInterval                     = BLOCK_INTERVAL;
         assert(CreateGenesisBlockRewardTx(genesis.vptx, MAIN_NET));
         assert(CreateGenesisDelegateTx(genesis.vptx, MAIN_NET));
         genesis.SetPrevBlockHash(uint256());
@@ -111,8 +108,6 @@ public:
         nDefaultPort             = IniCfg().GetDefaultPort(TEST_NET);
         nRPCPort                 = IniCfg().GetRPCPort(TEST_NET);
         strDataDir               = "testnet";
-        nFeatureForkHeight       = IniCfg().GetFeatureForkHeight(TEST_NET);
-        nStableCoinGenesisHeight = IniCfg().GetStableCoinGenesisHeight(TEST_NET);
         // Modify the testnet genesis block so the timestamp is valid for a later start.
         genesis.SetTime(IniCfg().GetStartTimeInit(TEST_NET));
         genesis.SetNonce(IniCfg().GetGenesisBlockNonce(TEST_NET));
@@ -142,10 +137,6 @@ public:
 
     virtual bool InitializeConfig() {
         CMainParams::InitializeConfig();
-
-        nStableCoinGenesisHeight = GetArg("-stablecoingenesisheight", IniCfg().GetStableCoinGenesisHeight(TEST_NET));
-        nFeatureForkHeight       = std::max<uint32_t>(nStableCoinGenesisHeight + 1,
-                                                GetArg("-featureforkheight", IniCfg().GetFeatureForkHeight(TEST_NET)));
         fServer = true;
 
         return true;
@@ -163,8 +154,6 @@ public:
         memcpy(pchMessageStart, IniCfg().GetMagicNumber(REGTEST_NET), sizeof(pchMessageStart));
         nDefaultPort             = IniCfg().GetDefaultPort(REGTEST_NET);
         strDataDir               = "regtest";
-        nFeatureForkHeight       = IniCfg().GetFeatureForkHeight(REGTEST_NET);
-        nStableCoinGenesisHeight = IniCfg().GetStableCoinGenesisHeight(REGTEST_NET);
         genesis.SetTime(IniCfg().GetStartTimeInit(REGTEST_NET));
         genesis.SetNonce(IniCfg().GetGenesisBlockNonce(REGTEST_NET));
         genesis.vptx.clear();
@@ -185,12 +174,7 @@ public:
     virtual bool InitializeConfig() {
         CTestNetParams::InitializeConfig();
 
-        nBlockIntervalPreStableCoinRelease =
-            GetArg("-blockintervalprestablecoinrelease", BLOCK_INTERVAL_PRE_STABLE_COIN_RELEASE);
-        nBlockIntervalStableCoinRelease = GetArg("-blockintervalstablecoinrelease", BLOCK_INTERVAL_STABLE_COIN_RELEASE);
-        nStableCoinGenesisHeight = GetArg("-stablecoingenesisheight", IniCfg().GetStableCoinGenesisHeight(REGTEST_NET));
-        nFeatureForkHeight       = std::max<uint32_t>(
-            nStableCoinGenesisHeight + 1, GetArg("-featureforkheight", IniCfg().GetFeatureForkHeight(REGTEST_NET)));
+        nBlockInterval = GetArg("-blockinterval", BLOCK_INTERVAL);
         fServer = true;
 
         return true;
@@ -372,27 +356,6 @@ bool CBaseParams::CreateGenesisDelegateTx(vector<std::shared_ptr<CBaseTx> > &vpt
     return true;
 }
 
-bool CBaseParams::CreateFundCoinRewardTx(vector<std::shared_ptr<CBaseTx> >& vptx, NET_TYPE type) {
-    // Stablecoin Global Reserve Account with its initial reseve creation
-    auto pTx      = std::make_shared<CCoinRewardTx>(CNullID(), nStableCoinGenesisHeight, SYMB::WUSD,
-                                               FUND_COIN_GENESIS_INITIAL_RESERVE_AMOUNT * COIN);
-    pTx->nVersion = INIT_TX_VERSION;
-    vptx.push_back(pTx);
-
-    // FundCoin Genesis Account with the total FundCoin release creation
-    pTx = std::make_shared<CCoinRewardTx>(CPubKey(ParseHex(IniCfg().GetInitFcoinOwnerPubKey(type))),
-                                          nStableCoinGenesisHeight, SYMB::WGRT,
-                                          FUND_COIN_GENESIS_TOTAL_RELEASE_AMOUNT * COIN);
-    vptx.push_back(pTx);
-
-    // DEX Order Matching Service Account
-    pTx = std::make_shared<CCoinRewardTx>(CPubKey(ParseHex(IniCfg().GetDexMatchServicePubKey(type))),
-                                          nStableCoinGenesisHeight, SYMB::WGRT, 0);
-    vptx.push_back(pTx);
-
-    return true;
-}
-
 bool CBaseParams::InitializeParams(int argc, const char* const argv[]) {
     ParseParameters(argc, argv);
     if (!boost::filesystem::is_directory(GetDataDir(false))) {
@@ -432,12 +395,4 @@ CBaseParams::CBaseParams() {
     fServer                 = 0;
     nRPCPort                = 0;
     nMaxForkTime            = 24 * 60 * 60;  // 86400 seconds
-}
-
-int32_t CBaseParams::GetMaxForkHeight(int32_t currBlockHeight) const {
-    uint32_t interval = GetBlockInterval(currBlockHeight);
-    if (interval != 0)
-        return nMaxForkTime / (uint32_t)interval;
-
-    return 0 ;
 }

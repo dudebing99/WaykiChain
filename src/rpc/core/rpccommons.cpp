@@ -564,27 +564,6 @@ void RPC_PARAM::CheckAccountBalance(CAccount &account, const TokenSymbol &tokenS
                            strprintf("Account does not have enough %s", tokenSymbol));
 }
 
-void RPC_PARAM::CheckActiveOrderExisted(CDexDBCache &dexCache, const uint256 &orderTxid) {
-    if (!dexCache.HaveActiveOrder(orderTxid))
-        throw JSONRPCError(RPC_DEX_ORDER_INACTIVE, "Order is inactive or not existed");
-}
-
-void RPC_PARAM::CheckOrderSymbols(const string &title, const TokenSymbol &coinSymbol,
-                                  const TokenSymbol &assetSymbol) {
-    if (coinSymbol.empty() || coinSymbol.size() > MAX_TOKEN_SYMBOL_LEN || kCoinTypeSet.count(coinSymbol) == 0) {
-        throw JSONRPCError(RPC_INVALID_PARAMS, strprintf("%s invalid order coin symbol=%s", title, coinSymbol));
-    }
-
-    if (assetSymbol.empty() || assetSymbol.size() > MAX_TOKEN_SYMBOL_LEN || kCoinTypeSet.count(assetSymbol) == 0) {
-        throw JSONRPCError(RPC_INVALID_PARAMS, strprintf("%s invalid order asset symbol=%s", title, assetSymbol));
-    }
-
-    if (kTradingPairSet.count(make_pair(assetSymbol, coinSymbol)) == 0) {
-        throw JSONRPCError(RPC_INVALID_PARAMS, strprintf("%s unsupport trading pair! coin_symbol=%s, asset_symbol=%s",
-            title, coinSymbol, assetSymbol));
-    }
-}
-
 bool RPC_PARAM::ParseHex(const string &hexStr, string &binStrOut, string &errStrOut) {
     int32_t begin = 0;
     int32_t end   = hexStr.size();
