@@ -2,6 +2,9 @@ ACLOCAL_AMFLAGS = -I src/m4
 SUBDIRS = src
 .PHONY: deploy
 
+ARFLAGS="cr"
+AR_FLAGS="cr"
+
 GZIP_ENV="-9n"
 
 BITCOIND_BIN=$(top_builddir)/src/bitcoind$(EXEEXT)
