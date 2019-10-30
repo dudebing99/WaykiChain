@@ -175,7 +175,7 @@ public:
     map<TokenSymbol, uint64_t> GetFees() const;
     CUserID GetMinerUserID() const;
 
-    void Print(CBlockDBCache &blockCache) const;
+    void Print() const;
 };
 
 /** The block chain is a tree shaped structure starting with the

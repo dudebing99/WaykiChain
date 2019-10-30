@@ -116,15 +116,7 @@ inline FeatureForkVersionEnum GetFeatureForkVersion(const int32_t currBlockHeigh
 }
 
 inline uint32_t GetBlockInterval(const int32_t currBlockHeight) {
-    FeatureForkVersionEnum featureForkVersion = GetFeatureForkVersion(currBlockHeight);
-    switch (featureForkVersion) {
-        case MAJOR_VER_R1:
-            return SysCfg().GetBlockInterval();
-        default:
-            assert(false && "unknown feature fork version");
-    }
-
-    return 0;
+    return 10; // TODO: Kevin
 }
 
 inline uint32_t GetYearBlockCount(const int32_t currBlockHeight) {
@@ -198,8 +190,8 @@ static const int64_t FUNDCOIN_MAX_MONEY   = BASECOIN_MAX_MONEY * 100;           
 static const int64_t STABLECOIN_MAX_MONEY = BASECOIN_MAX_MONEY * 10;             // 2100 million
 
 inline int64_t GetBaseCoinMaxMoney() { return BASECOIN_MAX_MONEY; }
-inline bool CheckBaseCoinRange(int64_t nValue) { return (nValue >= 0 && nValue <= BASECOIN_MAX_MONEY); }
-inline bool CheckFundCoinRange(int64_t nValue) { return (nValue >= 0 && nValue <= FUNDCOIN_MAX_MONEY); }
-inline bool CheckStableCoinRange(int64_t nValue) { return (nValue >= 0 && nValue <= STABLECOIN_MAX_MONEY); }
+inline bool CheckBaseCoinRange(const int64_t amount) { return (amount >= 0 && amount <= BASECOIN_MAX_MONEY); }
+inline bool CheckFundCoinRange(const int64_t amount) { return (amount >= 0 && amount <= FUNDCOIN_MAX_MONEY); }
+inline bool CheckStableCoinRange(const int64_t amount) { return (amount >= 0 && amount <= STABLECOIN_MAX_MONEY); }
 
 #endif /* CONFIGURATION_H_ */

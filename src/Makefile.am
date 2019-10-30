@@ -58,6 +58,7 @@ coin_CORE_H = \
   commons/bloom.h \
   commons/openssl.hpp \
   commons/serialize.h \
+  commons/leb128.h \
   commons/types.h \
   commons/util.h \
   commons/compat/byteswap.h \
@@ -355,14 +356,6 @@ coind_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS)
 coinlua_LDADD = liblua53.a -lm
 coinlua_SOURCES = vm/luavm/lua/coinlua.c
 coinlua_CFLAGS = $(AM_CFLAGS) -fPIC -DLUA_USE_POSIX -Wl,-E -ldl
-
-if BUILD_TESTS
-include Makefile_tests.am
-endif
-
-if BUILD_UNIT_TESTS
-include Makefile_unit_tests.am
-endif
 
 # NOTE: This dependency is not strictly necessary, but without it make may try to build both in parallel, which breaks the LevelDB build system in a race
 $(LIBLEVELDB): $(LIBMEMENV)

@@ -49,33 +49,8 @@ struct TxPriority {
     }
 };
 
-// mined block info
-class MinedBlockInfo {
-public:
-    int64_t time;             // block time
-    int64_t nonce;            // nonce
-    int32_t height;               // block height
-    uint64_t totalFuel;       // the total fuels of all transactions in the block
-    uint fuelRate;            // block fuel rate
-    uint64_t totalFees;       // the total fees of all transactions in the block
-    uint64_t txCount;         // transaction count in block, exclude coinbase
-    uint64_t totalBlockSize;  // block size(bytes)
-    uint256 hash;             // block hash
-    uint256 hashPrevBlock;    // prev block has
-
-public:
-    MinedBlockInfo() { SetNull(); }
-    void SetNull();
-};
-
-// get the info of mined blocks. thread safe.
-vector<MinedBlockInfo> GetMinedBlocks(uint32_t count);
-
 /** Run the miner threads */
 void GenerateCoinBlock(bool fGenerate, CWallet *pWallet, int32_t nThreads);
-
-/** Generate a new block pre-stable coin release */
-std::unique_ptr<CBlock> CreateNewBlock(CCacheWrapper &cwIn);
 
 bool CreateBlockRewardTx(const int64_t currentTime, const CAccount &delegate, CAccountDBCache &accountCache,
                          CBlock *pBlock);

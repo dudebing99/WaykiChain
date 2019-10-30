@@ -84,6 +84,7 @@ Object CallRPC(const string& strMethod, const Array& params) {
     Value valReply;
     if (!read_string(strReply, valReply))
         throw runtime_error("couldn't parse reply from server");
+
     const Object& reply = valReply.get_obj();
     if (reply.empty())
         throw runtime_error("expected reply to have result, error and id properties");
@@ -170,11 +171,6 @@ Array RPCConvertValues(const string &strMethod, const vector<string> &strParams)
     if (strMethod == "listdelegates"          && n > 0) ConvertTo<int32_t>(params[0]);
 
     if (strMethod == "invalidateblock"        && n > 0) { if (params[0].get_str().size() < 32) ConvertTo<int32_t>(params[0]); }
-
-    /** for mining */
-    if (strMethod == "getminedblocks"           && n > 0) ConvertTo<int64_t>(params[0]);
-    if (strMethod == "getminerbyblocktime"      && n > 0) ConvertTo<int64_t>(params[0]);
-    if (strMethod == "getminerbyblocktime"      && n > 1) ConvertTo<int64_t>(params[1]);
 
     if (strMethod == "startcommontpstest"       && n > 0)    ConvertTo<int64_t>(params[0]);
     if (strMethod == "startcommontpstest"       && n > 1)    ConvertTo<int64_t>(params[1]);

@@ -116,7 +116,8 @@ bool CKey::Sign(const uint256 &hash, vector<uint8_t> &vchSig) const {
 }
 
 bool CKey::SignCompact(const uint256 &hash, vector<uint8_t> &vchSig) const {
-    if (!fValid) return false;
+    if (!fValid)
+        return false;
 
     vchSig.resize(CPubKey::COMPACT_SIGNATURE_SIZE);
     int32_t rec = -1;

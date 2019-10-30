@@ -60,8 +60,6 @@ extern CSignatureCache signatureCache;
 
 extern CTxMemPool mempool;
 extern map<uint256, CBlockIndex *> mapBlockIndex;
-extern uint64_t nLastBlockTx;
-extern uint64_t nLastBlockSize;
 extern const string strMessageMagic;
 
 extern bool mining;     // could be changed due to vote change
@@ -219,6 +217,7 @@ public:
     CDelegateDBCache    *pDelegateCache;
 
     CBlockIndexDB       *pBlockIndexDb;
+
     CDBAccess           *pBlockDb;
     CBlockDBCache       *pBlockCache;
 
@@ -242,6 +241,7 @@ public:
         pDelegateCache  = new CDelegateDBCache(pDelegateDb);
 
         pBlockIndexDb   = new CBlockIndexDB(false, fReIndex);
+
         pBlockDb        = new CDBAccess(DBNameType::BLOCK, false, fReIndex);
         pBlockCache     = new CBlockDBCache(pBlockDb);
 

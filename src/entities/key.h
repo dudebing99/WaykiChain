@@ -146,19 +146,23 @@ public:
             uint16_t xSize;
             READDATA(is, xSize);
             nSizeRet = xSize;
-            if (nSizeRet < 253) throw ios_base::failure("non-canonical ReadCompactSize()");
+            if (nSizeRet < 253)
+                throw ios_base::failure("non-canonical ReadCompactSize()");
         } else if (chSize == 254) {
             uint32_t xSize;
             READDATA(is, xSize);
             nSizeRet = xSize;
-            if (nSizeRet < 0x10000u) throw ios_base::failure("non-canonical ReadCompactSize()");
+            if (nSizeRet < 0x10000u)
+                throw ios_base::failure("non-canonical ReadCompactSize()");
         } else {
             uint64_t xSize;
             READDATA(is, xSize);
             nSizeRet = xSize;
-            if (nSizeRet < 0x100000000LLu) throw ios_base::failure("non-canonical ReadCompactSize()");
+            if (nSizeRet < 0x100000000LLu)
+                throw ios_base::failure("non-canonical ReadCompactSize()");
         }
-        if (nSizeRet > 0x02000000LLu) throw ios_base::failure("ReadCompactSize() : size too large");
+        if (nSizeRet > 0x02000000LLu)
+            throw ios_base::failure("ReadCompactSize() : size too large");
         return nSizeRet;
     }
 
@@ -250,13 +254,16 @@ private:
     bool static Check(const uint8_t *vch);
 
 public:
-    IMPLEMENT_SERIALIZE(uint32_t len = 0; while (len < sizeof(vch)) { READWRITE(vch[len++]); } READWRITE(fCompressed);
-                        READWRITE(fValid);)
+    IMPLEMENT_SERIALIZE(
+        uint32_t len = 0;
+        while (len < sizeof(vch)) {
+            READWRITE(vch[len++]);
+        }
+        READWRITE(fCompressed);
+        READWRITE(fValid);
+    )
 
-    string ToString() const {
-        if (fValid) return HexStr(begin(), end());
-        return "";
-    }
+    string ToString() const { return fValid ? HexStr(begin(), end()) : ""; }
 
     // Construct an invalid private key.
     CKey() : fValid(false) {
