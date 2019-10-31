@@ -22,7 +22,7 @@
 using namespace json_spirit;
 using namespace std;
 
-class CBaseCoinTransferTx;
+class CUCoinTransferTx;
 
 Object BlockToJSON(const CBlock& block, const CBlockIndex* pBlockIndex) {
     Object result;
@@ -344,7 +344,7 @@ Value reconsiderblock(const Array& params, bool fHelp) {
     return obj;
 }
 
-static unique_ptr<MsgQueue<CBaseCoinTransferTx>> generationQueue;
+static unique_ptr<MsgQueue<CUCoinTransferTx>> generationQueue;
 
 void static CommonTxGenerator(const int64_t period, const int64_t batchSize) {
     RenameThread("CommonTxGenerator");
@@ -363,9 +363,9 @@ void static CommonTxGenerator(const int64_t period, const int64_t batchSize) {
 
     CRegID srcRegId("0-1");
     CRegID desRegId("0-1");
-    static uint64_t llValue = 10000;  // use static variable to keep autoincrement
+    static uint64_t coinAmount = 10000;  // use static variable to keep autoincrement
     uint64_t llFees         = 0;
-    GetTxMinFee(BCOIN_TRANSFER_TX, chainActive.Height(), SYMB::WICC, llFees);
+    GetTxMinFee(UCOIN_TRANSFER_TX, chainActive.Height(), SYMB::WICC, llFees);
 
     while (true) {
         // add interruption point
@@ -375,11 +375,10 @@ void static CommonTxGenerator(const int64_t period, const int64_t batchSize) {
         int32_t validHeight = chainActive.Height();
 
         for (int64_t i = 0; i < batchSize; ++i) {
-            CBaseCoinTransferTx tx;
+            CUCoinTransferTx tx;
             tx.txUid        = srcRegId;
-            tx.toUid        = desRegId;
-            tx.coin_amount  = llValue++;
-            tx.llFees       = llFees;
+            tx.transfers    = {{desRegId, SYMB::WICC, coinAmount++}};
+            tx.memo         = "";
             tx.valid_height = validHeight;
 
             // sign transaction
@@ -404,7 +403,7 @@ void static CommonTxSender() {
     SetThreadPriority(THREAD_PRIORITY_NORMAL);
 
     CValidationState state;
-    CBaseCoinTransferTx tx;
+    CUCoinTransferTx tx;
 
     while (true) {
         // add interruption point
@@ -436,9 +435,9 @@ void StartCommonGeneration(const int64_t period, const int64_t batchSize) {
     // For example, generate 50(batchSize) transactions in 20(period), then
     // we need to prepare 1000 * 10 / 20 * 50 = 25,000 transactions in 10 second.
     // Actually, set the message queue's size to 50,000(double or up to 60,000).
-    MsgQueue<CBaseCoinTransferTx>::SizeType size       = 1000 * 10 * batchSize * 2 / period;
-    MsgQueue<CBaseCoinTransferTx>::SizeType actualSize = size > MSG_QUEUE_MAX_LEN ? MSG_QUEUE_MAX_LEN : size;
-    generationQueue.reset(new MsgQueue<CBaseCoinTransferTx>(actualSize));
+    MsgQueue<CUCoinTransferTx>::SizeType size       = 1000 * 10 * batchSize * 2 / period;
+    MsgQueue<CUCoinTransferTx>::SizeType actualSize = size > MSG_QUEUE_MAX_LEN ? MSG_QUEUE_MAX_LEN : size;
+    generationQueue.reset(new MsgQueue<CUCoinTransferTx>(actualSize));
 
     generateThreads = new boost::thread_group();
     generateThreads->create_thread(boost::bind(&CommonTxGenerator, period, batchSize));
@@ -500,8 +499,8 @@ void static ContractTxGenerator(const string& regid, const int64_t period, const
 
     CRegID txUid("0-1");
     CRegID appUid(regid);
-    static uint64_t llValue = 10000;  // use static variable to keep autoincrement
-    uint64_t llFees         = 0;
+    static uint64_t coinAmount = 10000;  // use static variable to keep autoincrement
+    uint64_t llFees            = 0;
     GetTxMinFee(LCONTRACT_INVOKE_TX, chainActive.Height(), SYMB::WICC, llFees);
 
     // hex(whmD4M8Q8qbEx6R5gULbcb5ZkedbcRDGY1) =
@@ -519,7 +518,7 @@ void static ContractTxGenerator(const string& regid, const int64_t period, const
             CLuaContractInvokeTx tx;
             tx.txUid        = txUid;
             tx.app_uid      = appUid;
-            tx.coin_amount  = llValue++;
+            tx.coin_amount  = coinAmount++;
             tx.llFees       = llFees;
             tx.arguments    = arguments;
             tx.valid_height = validHeight;

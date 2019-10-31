@@ -608,18 +608,19 @@ void PushGetBlocks(CNode *pNode, CBlockIndex *pindexBegin, uint256 hashEnd);
 void PushGetBlocksOnCondition(CNode *pNode, CBlockIndex *pindexBegin, uint256 hashEnd);
 /** Process an incoming block */
 bool ProcessBlock(CValidationState &state, CNode *pFrom, CBlock *pBlock, CDiskBlockPos *dbp = nullptr);
+
 /** Print the loaded block tree */
 void PrintBlockTree();
-
-void UpdateTime(CBlockHeader &block, const CBlockIndex *pIndexPrev);
 
 /** Find the best known block, and make it the tip of the block chain */
 bool ActivateBestChain(CValidationState &state);
 
 /** Remove invalidity status from a block and its descendants. */
 bool ReconsiderBlock(CValidationState &state, CBlockIndex *pIndex);
+
 /** Functions for disk access for blocks */
 bool WriteBlockToDisk(CBlock &block, CDiskBlockPos &pos);
+
 bool ReadBlockFromDisk(const CDiskBlockPos &pos, CBlock &block);
 bool ReadBlockFromDisk(const CBlockIndex *pIndex, CBlock &block);
 
@@ -655,8 +656,6 @@ void Serialize(Stream &os, const std::shared_ptr<CBaseTx> &pa, int32_t nType, in
             Serialize(os, *((CBlockRewardTx *)(pa.get())), nType, nVersion); break;
         case ACCOUNT_REGISTER_TX:
             Serialize(os, *((CAccountRegisterTx *)(pa.get())), nType, nVersion); break;
-        case BCOIN_TRANSFER_TX:
-            Serialize(os, *((CBaseCoinTransferTx *)(pa.get())), nType, nVersion); break;
         case LCONTRACT_INVOKE_TX:
             Serialize(os, *((CLuaContractInvokeTx *)(pa.get())), nType, nVersion); break;
         case LCONTRACT_DEPLOY_TX:
@@ -674,7 +673,7 @@ void Serialize(Stream &os, const std::shared_ptr<CBaseTx> &pa, int32_t nType, in
             Serialize(os, *((CAssetUpdateTx *)(pa.get())), nType, nVersion); break;
 
         case UCOIN_TRANSFER_TX:
-            Serialize(os, *((CCoinTransferTx *)(pa.get())), nType, nVersion); break;
+            Serialize(os, *((CUCoinTransferTx *)(pa.get())), nType, nVersion); break;
         case UCONTRACT_DEPLOY_TX:
             Serialize(os, *((CUniversalContractDeployTx *)(pa.get())), nType, nVersion); break;
         case UCONTRACT_INVOKE_TX:
@@ -701,11 +700,6 @@ void Unserialize(Stream &is, std::shared_ptr<CBaseTx> &pa, int32_t nType, int32_
         case ACCOUNT_REGISTER_TX: {
             pa = std::make_shared<CAccountRegisterTx>();
             Unserialize(is, *((CAccountRegisterTx *)(pa.get())), nType, nVersion);
-            break;
-        }
-        case BCOIN_TRANSFER_TX: {
-            pa = std::make_shared<CBaseCoinTransferTx>();
-            Unserialize(is, *((CBaseCoinTransferTx *)(pa.get())), nType, nVersion);
             break;
         }
         case LCONTRACT_INVOKE_TX: {
@@ -749,8 +743,8 @@ void Unserialize(Stream &is, std::shared_ptr<CBaseTx> &pa, int32_t nType, int32_
         }
 
         case UCOIN_TRANSFER_TX: {
-            pa = std::make_shared<CCoinTransferTx>();
-            Unserialize(is, *((CCoinTransferTx *)(pa.get())), nType, nVersion);
+            pa = std::make_shared<CUCoinTransferTx>();
+            Unserialize(is, *((CUCoinTransferTx *)(pa.get())), nType, nVersion);
             break;
         }
         case UCONTRACT_DEPLOY_TX: {

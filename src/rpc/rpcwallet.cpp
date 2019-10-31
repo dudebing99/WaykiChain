@@ -327,7 +327,7 @@ Value submitsendtx(const Array& params, bool fHelp) {
     string memo    = params.size() == 5 ? params[4].get_str() : "";
     int32_t height = chainActive.Height();
     std::shared_ptr<CBaseTx> pBaseTx;
-    pBaseTx = std::make_shared<CCoinTransferTx>(sendUserId, recvUserId, height, cmCoin.symbol, cmCoin.GetSawiAmount(),
+    pBaseTx = std::make_shared<CUCoinTransferTx>(sendUserId, recvUserId, height, cmCoin.symbol, cmCoin.GetSawiAmount(),
                                                 cmFee.symbol, cmFee.GetSawiAmount(), memo);
 
     return SubmitTx(account.keyid, *pBaseTx);

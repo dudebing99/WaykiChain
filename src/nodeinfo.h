@@ -1,6 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2013 The WaykiChain developers
-// Copyright (c) 2016 The Coin developers
+// Copyright (c) 2017-2019 The WaykiChain Developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -24,22 +23,21 @@ extern CKeyID minerKeyId;
 extern CKeyID nodeKeyId;
 
 struct NodeInfo {
-    bool bp;        //is a current block producer or not
-    string nv;      //node program version
-    string nfp;     //node fingerprint
-    uint32_t synh;  //sync block height
-    uint32_t tiph;  //tip block height
-    uint32_t finh;  //finalized block height
+    bool bp;        // is a current block producer or not
+    string nv;      // node program version
+    string nfp;     // node fingerprint
+    uint32_t synh;  // sync block height
+    uint32_t tiph;  // tip block height
+    uint32_t finh;  // finalized block height
 };
 
 void getnodeinfo(NodeInfo *pNodeInfo) {
-    static const string fullVersion = strprintf("%s (%s)", FormatFullVersion().c_str(), CLIENT_DATE.c_str());
-    pNodeInfo->nv = fullVersion;
-    pNodeInfo->bp = mining;
-    pNodeInfo->nfp = mining ? minerKeyId.ToString() : nodeKeyId.ToString();
+    pNodeInfo->nv   = strprintf("%s (%s)", FormatFullVersion().c_str(), CLIENT_DATE.c_str());
+    pNodeInfo->bp   = mining;
+    pNodeInfo->nfp  = mining ? minerKeyId.ToString() : nodeKeyId.ToString();
     pNodeInfo->synh = nSyncTipHeight;
     pNodeInfo->tiph = chainActive.Height();
-    pNodeInfo->finh = 0; // TODO: placeholder here
+    pNodeInfo->finh = 0;  // TODO: placeholder here
 }
 
 #endif

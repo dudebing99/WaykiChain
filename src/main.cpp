@@ -804,10 +804,6 @@ bool ReconsiderBlock(CValidationState &state, CBlockIndex *pIndex) {
     return true;
 }
 
-void UpdateTime(CBlockHeader &block, const CBlockIndex *pIndexPrev) {
-    block.SetTime(max(pIndexPrev->GetMedianTimePast() + 1, GetAdjustedTime()));
-}
-
 bool DisconnectBlock(CBlock &block, CCacheWrapper &cw, CBlockIndex *pIndex, CValidationState &state, bool *pfClean) {
     assert(pIndex->GetBlockHash() == cw.blockCache.GetBestBlockHash());
 
@@ -1706,7 +1702,7 @@ bool ProcessForkedChain(const CBlock &block, CBlockIndex *pPreBlockIndex, CValid
             spNewForkCW->delegateCache.LoadTopDelegateList();
         }
 
-        spNewForkCW->Flush();  // flush to spNewForkCW
+        spNewForkCW->Flush();  // flush to spCW
 
         vector<CBlock>::iterator iterBlock = vPreBlocks.begin();
         if (forkChainTipFound) {
@@ -2655,7 +2651,6 @@ std::shared_ptr<CBaseTx> CreateNewEmptyTransaction(uint8_t txType) {
     switch (txType) {
         case BLOCK_REWARD_TX:       return std::make_shared<CBlockRewardTx>();
         case ACCOUNT_REGISTER_TX:   return std::make_shared<CAccountRegisterTx>();
-        case BCOIN_TRANSFER_TX:     return std::make_shared<CBaseCoinTransferTx>();
         case LCONTRACT_INVOKE_TX:   return std::make_shared<CLuaContractInvokeTx>();
         case LCONTRACT_DEPLOY_TX:   return std::make_shared<CLuaContractDeployTx>();
         case DELEGATE_VOTE_TX:      return std::make_shared<CDelegateVoteTx>();
@@ -2666,7 +2661,7 @@ std::shared_ptr<CBaseTx> CreateNewEmptyTransaction(uint8_t txType) {
         case ASSET_ISSUE_TX:        return std::make_shared<CAssetIssueTx>();
         case ASSET_UPDATE_TX:       return std::make_shared<CAssetUpdateTx>();
 
-        case UCOIN_TRANSFER_TX:     return std::make_shared<CCoinTransferTx>();
+        case UCOIN_TRANSFER_TX:     return std::make_shared<CUCoinTransferTx>();
         case UCONTRACT_DEPLOY_TX:   return std::make_shared<CUniversalContractDeployTx>();
         case UCONTRACT_INVOKE_TX:   return std::make_shared<CUniversalContractInvokeTx>();
 

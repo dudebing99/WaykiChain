@@ -948,8 +948,8 @@ int32_t ExGetTxRegIDFunc(lua_State *L) {
     std::shared_ptr<CBaseTx> pBaseTx;
     int32_t len = 0;
     if (GetTransaction(pBaseTx, hash, pVmRunEnv->GetCw()->blockCache, false)) {
-        if (pBaseTx->nTxType == BCOIN_TRANSFER_TX) {
-            CBaseCoinTransferTx *tx = static_cast<CBaseCoinTransferTx*>(pBaseTx.get());
+        if (pBaseTx->nTxType == UCOIN_TRANSFER_TX) {
+            CUCoinTransferTx *tx = static_cast<CUCoinTransferTx*>(pBaseTx.get());
             if (tx->txUid.type() != typeid(CRegID))
                 return RetFalse("ExGetTxRegIDFunc, txUid is not CRegID type");
 
