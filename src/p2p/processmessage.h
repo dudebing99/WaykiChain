@@ -12,7 +12,7 @@ bool static ProcessMessage(CNode *pFrom, string strCommand, CDataStream &vRecv) 
     LogPrint("net", "received: %s (%u bytes) from peer %s\n", strCommand, vRecv.size(), pFrom->addr.ToString());
 
     {
-        LOCK(cs_main);
+        LOCK(cs_mapNodeState);
         State(pFrom->GetId())->nLastBlockProcess = GetTimeMicros();
     }
 

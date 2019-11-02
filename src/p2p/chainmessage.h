@@ -83,11 +83,13 @@ struct CNodeState {
     }
 };
 
-// Map maintaining per-node state. Requires cs_main.
+// Map maintaining per-node state. Requires cs_mapNodeState.
 map<NodeId, CNodeState> mapNodeState;
+CCriticalSection cs_mapNodeState;
 
-// Requires cs_main.
+// Requires cs_mapNodeState.
 CNodeState *State(NodeId pNode) {
+    AssertLockHeld(cs_mapNodeState);
     map<NodeId, CNodeState>::iterator it = mapNodeState.find(pNode);
     if (it == mapNodeState.end())
         return nullptr;
@@ -95,8 +97,9 @@ CNodeState *State(NodeId pNode) {
     return &it->second;
 }
 
-// Requires cs_main.
+// Requires cs_mapNodeState.
 void MarkBlockAsReceived(const uint256 &hash, NodeId nodeFrom = -1) {
+    AssertLockHeld(cs_mapNodeState);
     auto itToDownload = mapBlocksToDownload.find(hash);
     if (itToDownload != mapBlocksToDownload.end()) {
         CNodeState *state = State(std::get<0>(itToDownload->second));
@@ -273,13 +276,16 @@ inline bool AddBlockToQueue(const uint256 &hash, NodeId nodeId) {
          (now - std::get<2>(mapBlocksToDownload[hash]) < blocksToDownloadTimeout * 1000000)) ||
         (mapBlocksInFlight.count(hash) &&
          (now - std::get<2>(mapBlocksInFlight[hash]) < blockInFlightTimeout * 1000000))) {
-        LogPrint("net", "block: %s is downloading from another peer, ignore\n", hash.GetHex());
+        LogPrint("net", "block is downloading from another peer, ignore! time_ms=%lld, hash=%s\n", GetTimeMillis(), hash.GetHex());
 
         return false;
     }
 
+    LOCK(cs_mapNodeState);
     CNodeState *state = State(nodeId);
     if (state == nullptr) {
+        LogPrint("net", "peer not found! time_ms=%lld, hash=%s peer_id=%d\n",
+            GetTimeMillis(), hash.ToString(), nodeId);
         return false;
     }
 
@@ -293,7 +299,8 @@ inline bool AddBlockToQueue(const uint256 &hash, NodeId nodeId) {
         Misbehaving(nodeId, 10);
     }
 
-    LogPrint("net", "block: %s start to download from peer %s\n", hash.ToString(), state->name);
+    LogPrint("net", "start to download block! time_ms=%lld, hash=%s peer=%s\n",
+        GetTimeMillis(), hash.ToString(), state->name);
     mapBlocksToDownload[hash] = std::make_tuple(nodeId, it, GetTimeMicros());
 
     return true;
@@ -610,28 +617,34 @@ inline void ProcessGetBlocksMessage(CNode *pFrom, CDataStream &vRecv) {
     LOCK(cs_main);
 
     // Find the last block the caller has in the main chain
-    CBlockIndex *pIndex = chainActive.FindFork(locator);
+    CBlockIndex *pStartIndex = chainActive.FindFork(locator);
 
     // Send the rest of the chain
-    if (pIndex)
-        pIndex = chainActive.Next(pIndex);
+    if (pStartIndex)
+        pStartIndex = chainActive.Next(pStartIndex);
 
     int32_t nLimit = 500;
-    LogPrint("net", "recv getblocks %d to %s limit %d from peer %s\n", (pIndex ? pIndex->height : -1),
-             hashStop.ToString(), nLimit, pFrom->addr.ToString());
+    LogPrint("net", "recv getblocks msg! start_block=%s, end_block=%s, tip_block=%s, limit=%d, peer=%s\n",
+        (pStartIndex ? pStartIndex->GetIndentityString() : ""), hashStop.ToString(),
+        chainActive.Tip()->GetIndentityString(), nLimit, pFrom->addrName);
 
+    CBlockIndex *pIndex = pStartIndex;
     for (; pIndex; pIndex = chainActive.Next(pIndex)) {
         if (pIndex->GetBlockHash() == hashStop) {
-            LogPrint("net", "getblocks stopping at %d %s from peer %s\n", pIndex->height,
-                     pIndex->GetBlockHash().ToString(), pFrom->addr.ToString());
+            LogPrint("net", "processing getblocks stoped by hash_end! end_block=%s, peer=%s\n",
+                pIndex->GetIndentityString(), pFrom->addrName);
             break;
         }
-        pFrom->PushInventory(CInv(MSG_BLOCK, pIndex->GetBlockHash()));
+
+        bool forced = false;
+        if (pIndex == pStartIndex || pIndex->pprev == pStartIndex)
+            forced = true;
+        pFrom->PushInventory(CInv(MSG_BLOCK, pIndex->GetBlockHash()), forced);
         if (--nLimit <= 0) {
             // When this block is requested, we'll send an inv that'll make them
             // getblocks the next batch of inventory.
-            LogPrint("net", "process getblocks stopping at limit %d %s from peer %s\n", pIndex->height,
-                     pIndex->GetBlockHash().ToString(), pFrom->addr.ToString());
+            LogPrint("net", "processing getblocks stopped by limit! end_block=%s, limit=%d, peer=%s\n",
+                pIndex->GetIndentityString(), 500, pFrom->addrName);
             pFrom->hashContinue = pIndex->GetBlockHash();
             break;
         }
@@ -643,7 +656,7 @@ inline bool ProcessInvMessage(CNode *pFrom, CDataStream &vRecv) {
     vRecv >> vInv;
     if (vInv.size() > MAX_INV_SZ) {
         Misbehaving(pFrom->GetId(), 20);
-        return ERRORMSG("message inv size() = %u from peer %s", vInv.size(), pFrom->addr.ToString());
+        return ERRORMSG("message inv size() = %u from peer %s", vInv.size(), pFrom->addrName);
     }
 
     LOCK(cs_main);
@@ -653,38 +666,55 @@ inline bool ProcessInvMessage(CNode *pFrom, CDataStream &vRecv) {
         boost::this_thread::interruption_point();
         pFrom->AddInventoryKnown(inv);
 
-        bool fAlreadyHave = AlreadyHave(inv);
-        if (fAlreadyHave) {
-            int32_t nBlockHeight = 0;
-            if (inv.type == MSG_BLOCK && mapBlockIndex.count(inv.hash))
-            nBlockHeight = mapBlockIndex[inv.hash]->height;
-            LogPrint("net", "got inv[%d]: %s h=%d peer=%d\n", i++, inv.ToString(), nBlockHeight, pFrom->GetId());
-        } else {
-            LogPrint("net", "got inv[%d]: %s new peer=%d\n", i++, inv.ToString(), pFrom->GetId());
+        bool fAlreadyHave = false;
+        const char* msgName = "UNKNOWN";
+        if (inv.type ==  MSG_TX) {
+            msgName = "MSG_TX";
+            if (mempool.Exists(inv.hash)) {
+                LogPrint("net", "recv inv old data! time_ms=%lld, i=%d, msg=%s, hash=%s, peer=%s\n",
+                    GetTimeMillis(), i, msgName, inv.ToString(), pFrom->addrName);
+                fAlreadyHave = true;
+            }
+        } else if (inv.type == MSG_BLOCK) {
+            msgName = "MSG_BLOCK";
+            auto blockIndexIt = mapBlockIndex.find(inv.hash);
+            if (blockIndexIt != mapBlockIndex.end()) {
+                LogPrint("net", "recv inv old data! time_ms=%lld, i=%d, msg=%s, hash=%s, peer=%s, found_in=%s, height=%d\n",
+                    GetTimeMillis(), i, msgName, inv.ToString(), pFrom->addrName, "BlockIndex", blockIndexIt->second->height);
+                fAlreadyHave = true;
+            } else {
+                auto orphanBlockIt = mapOrphanBlocks.find(inv.hash);
+                if (orphanBlockIt != mapOrphanBlocks.end()) {
+                    LogPrint("net", "recv inv old data! time_ms=%lld, i=%d, msg=%s, hash=%s, peer=%s, found_in=%s, height=%d\n",
+                        GetTimeMillis(), i, msgName, inv.ToString(), pFrom->addrName, "OrphanBlock", orphanBlockIt->second->height);
+                    fAlreadyHave = true;
+
+                    LogPrint("net", "recv orphan block and lead to getblocks! height=%d, hash=%s, "
+                             "tip_height=%d, tip_hash=%s, peer=%s\n",
+                             orphanBlockIt->second->height, inv.hash.GetHex(), chainActive.Height(),
+                             chainActive.Tip()->GetBlockHash().GetHex(), pFrom->addrName);
+                    PushGetBlocksOnCondition(pFrom, chainActive.Tip(), GetOrphanRoot(inv.hash));
+                    // TODO: should get the headmost block of this fork from current peer
+                }
+            }
         }
 
-
         if (!fAlreadyHave) {
+            LogPrint("net", "recv inv new data! time_ms=%lld, i=%d, msg=%s, hash=%s, peer=%s\n",
+                GetTimeMillis(), i, msgName, inv.ToString(), pFrom->addrName);
             if (!SysCfg().IsImporting() && !SysCfg().IsReindex()) {
                 if (inv.type == MSG_BLOCK)
                     AddBlockToQueue(inv.hash, pFrom->GetId());
                 else
                     pFrom->AskFor(inv);  // MSG_TX
             }
-        } else if (inv.type == MSG_BLOCK && mapOrphanBlocks.count(inv.hash)) {
-            COrphanBlock *pOrphanBlock = mapOrphanBlocks[inv.hash];
-            LogPrint("net",
-                     "receive orphan block inv height=%d hash=%s from %s lead to getblocks, current block height=%d, "
-                     "current block hash=%s\n",
-                     pOrphanBlock->height, inv.hash.GetHex(), pFrom->addr.ToString(), chainActive.Height(),
-                     chainActive.Tip()->GetBlockHash().GetHex());
-            PushGetBlocksOnCondition(pFrom, chainActive.Tip(), GetOrphanRoot(inv.hash));
         }
 
         if (pFrom->nSendSize > (SendBufferSize() * 2)) {
             Misbehaving(pFrom->GetId(), 50);
             return ERRORMSG("send buffer size() = %u", pFrom->nSendSize);
         }
+        i++;
     }
     return true;
 }
@@ -713,17 +743,21 @@ inline void ProcessBlockMessage(CNode *pFrom, CDataStream &vRecv) {
     CBlock block;
     vRecv >> block;
 
-    LogPrint("net", "received block %s from peer %s\n", block.GetHash().ToString(), pFrom->addr.ToString());
+    LogPrint("net", "recv block! time_ms=%lld, hash=%s, peer=%s\n", GetTimeMillis(),
+        block.GetHash().ToString(), pFrom->addr.ToString());
     // block.Print();
 
     CInv inv(MSG_BLOCK, block.GetHash());
     pFrom->AddInventoryKnown(inv);
 
-    LOCK(cs_main);
-    // Remember who we got this block from.
-    mapBlockSource[inv.hash] = pFrom->GetId();
-    MarkBlockAsReceived(inv.hash, pFrom->GetId());
+    {
+        // Remember who we got this block from.
+        LOCK(cs_mapNodeState);
+        mapBlockSource[inv.hash] = pFrom->GetId();
+        MarkBlockAsReceived(inv.hash, pFrom->GetId());
+    }
 
+    LOCK(cs_main);
     CValidationState state;
     ProcessBlock(state, pFrom, &block);
 }
